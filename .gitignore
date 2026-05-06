@@ -1,4 +1,9 @@
-*.mat
+
+# Then add normally
+git add __pretrained_shhs_1chan_subseqlen10_nsubseq20_1blocks/
+git add .gitignore
+git commit -m "Add pretrained SHHS model weights and update gitignore"
+git push*.mat
 *.npy
 *.sif
 *.edf
@@ -9,7 +14,6 @@ prev_runs/
 raw_data_30min/
 edfFiles/
 checkpoint/
-__pretrained_shhs*/
 __pycache__/
 *.pyc
 *.e[0-9]*
