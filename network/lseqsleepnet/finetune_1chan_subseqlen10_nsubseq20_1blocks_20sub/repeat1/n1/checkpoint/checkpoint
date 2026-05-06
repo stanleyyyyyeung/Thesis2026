@@ -1,0 +1,2 @@
+model_checkpoint_path: "/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/network/lseqsleepnet/finetune_1chan_subseqlen10_nsubseq20_1blocks_20sub/repeat1/n1/checkpoint/model_step300.ckpt"
+all_model_checkpoint_paths: "/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/network/lseqsleepnet/finetune_1chan_subseqlen10_nsubseq20_1blocks_20sub/repeat1/n1/checkpoint/model_step300.ckpt"

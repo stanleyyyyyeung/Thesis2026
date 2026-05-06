@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# Configuration
+N_SUBJECTS=5
+PRETRAINED="../../__pretrained_shhs_1chan_subseqlen10_nsubseq20_1blocks/best_model_acc"
+
+mkdir -p ./out_thesis
+mkdir -p ./log_thesis
+
+echo "Starting Preliminary Thesis Run: Subjects 1 to $N_SUBJECTS"
+
+for i in $(seq 1 $N_SUBJECTS)
+do
+    echo "------------------------------------------------"
+    echo "Processing Subject $i / $N_SUBJECTS"
+    echo "------------------------------------------------"
+
+    # We use CUDA_VISIBLE_DEVICES="" to force CPU
+    # We map $i to the 'n' number in the filenames
+    CUDA_VISIBLE_DEVICES="" python3 finetune_lseqsleepnet.py \
+        --eeg_train_data "../../file_list_20sub/eeg/train_list_n${i}.txt" \
+        --eeg_eval_data "../../file_list_20sub/eeg/eval_list_n${i}.txt" \
+        --pretrained_model "$PRETRAINED" \
+        --out_dir "./out_thesis/n${i}/" \
+        --log_dir "./log_thesis/n${i}/" \
+        --dropout_rnn 0.9 \
+        --sub_seq_len 10 \
+        --nfilter 32 \
+        --nhidden1 64 \
+        --nhidden2 64 \
+        --attention_size 64 \
+        --nsubseq 20 \
+        --dualrnn_blocks 1 \
+        --gpu_usage 0.0
+
+    echo "Subject $i finetuning complete."
+done
+
+echo "Run complete. Preliminary results are in ./out_thesis/"#!/bin/bash
+
+# Configuration
+DATA_DIR="./data/"
+OUTPUT_DIR="./out_thesis/"
+LOG_DIR="./log_thesis/"
+N_SUBJECTS=5  # Strictly limiting to first 5 for your presentation
+
+mkdir -p $OUTPUT_DIR
+mkdir -p $LOG_DIR
+
+echo "Starting Preliminary Thesis Run: Subjects 1 to $N_SUBJECTS"
+
+# Loop through only the first 5 subjects
+for i in $(seq 1 $N_SUBJECTS)
+do
+    echo "------------------------------------------------"
+    echo "Processing Subject $i / $N_SUBJE
