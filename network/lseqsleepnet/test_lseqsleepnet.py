@@ -256,16 +256,21 @@ with tf.Graph().as_default():
             yhat[count : count + len(gen_wrapper.gen.data_index)] = yhat_
             score[count : count + len(gen_wrapper.gen.data_index)] = score_
 
+            # MODIFIED: To solve n3 error we now have all 0s for test_acc (since we will compute that locally again anyway)
+
             # groundtruth
-            for n in range(config.sub_seq_len*config.nsubseq):
-                y[count : count + len(gen_wrapper.gen.data_index), n] =\
-                    gen_wrapper.gen.label[gen_wrapper.gen.data_index - (config.sub_seq_len*config.nsubseq - 1) + n]
+            #for n in range(config.sub_seq_len*config.nsubseq):
+                #indices = gen_wrapper.gen.data_index - (config.sub_seq_len*config.nsubseq - 1) + n
+                #indices = np.clip(indices, 0, len(gen_wrapper.gen.label) - 1)
+                #y[count : count + len(gen_wrapper.gen.data_index), n] = \
+                #gen_wrapper.gen.label[indices]
+
             count += len(gen_wrapper.gen.data_index)
 
             test_acc = np.zeros([config.sub_seq_len*config.nsubseq])
-            for n in range(config.sub_seq_len*config.nsubseq):
-                test_acc[n] = accuracy_score(yhat[:, n], y[:, n]) # excluding the indexes of the recordings
-
+           # for n in range(config.sub_seq_len*config.nsubseq):
+            #    test_acc[n] = accuracy_score(yhat[:, n], y[:, n])
+ 
             return test_acc, yhat, score, output_loss, total_loss
 
         # evaluation on test data
