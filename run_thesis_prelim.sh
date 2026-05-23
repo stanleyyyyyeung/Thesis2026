@@ -31,7 +31,7 @@ apptainer exec --nv -B /srv:/srv /srv/scratch/z5423210/tf22_py3.sif \
     --eeg_train_data "../../file_list_20sub/eeg/train_list_n${i}.txt" \
     --eeg_eval_data "../../file_list_20sub/eeg/eval_list_n${i}.txt" \
     --pretrained_model "$PRETRAINED" \
-    --out_dir "/srv/scratch/z5423210/StanleyThesis2026/prev_runs/run${runIndex}/out/n${i}" \
+    --out_dir "/srv/scratch/z5423210/StanleyThesis2026/prev_runs/sleepedf-20/run${runIndex}/out/n${i}" \
     --log_dir "/srv/scratch/z5423210/StanleyThesis2026/log_final/n${i}" \
     --dropout_rnn 0.9 \
     --sub_seq_len 10 \

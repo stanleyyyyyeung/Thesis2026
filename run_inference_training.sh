@@ -5,12 +5,12 @@
 #PBS -N LSeq_Inference
 
 # ===== EDIT THIS BEFORE EACH RUN =====
-RUN_NUMBER=1
+RUN_NUMBER=2
 
 # ===== PATHS =====
 BASE_DIR="/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20"
 SCRIPT_DIR="$BASE_DIR/network/lseqsleepnet"
-OUT_BASE="/srv/scratch/z5423210/StanleyThesis2026/prev_runs/sleepedf-20/run${RUN_NUMBER}/out"
+OUT_BASE="/srv/scratch/z5423210/StanleyThesis2026/prev_runs/sleepedf-20/run${RUN_NUMBER}/training_scores"
 CONTAINER="/srv/scratch/z5423210/tf22_py3.sif"
 PYTHONPATH_DIR="/srv/scratch/z5423210/python_packages"
 
@@ -34,7 +34,7 @@ do
       cd $SCRIPT_DIR && \
       python test_lseqsleepnet.py \
         --eeg_train_data '../../file_list_20sub/eeg/train_list_n${i}.txt' \
-        --eeg_test_data '../../file_list_20sub/eeg/test_list_n${i}.txt' \
+        --eeg_test_data '../../file_list_20sub/eeg/train_list_n${i}.txt' \
         --out_dir '$OUT_DIR/' \
         --checkpoint_dir '$FINETUNED' \
         --dropout_rnn 0.9 \
