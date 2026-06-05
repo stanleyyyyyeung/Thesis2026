@@ -9,7 +9,7 @@ from scipy.stats import entropy
 # ============================================================
 # CONFIGURATION — EDIT THESE BEFORE EACH RUN
 # ============================================================
-RUN_NUMBER = 1
+RUN_NUMBER = 2
 
 # Mode: "none", "hmm", or "hsmm"
 REFINEMENT_MODE = "hmm"
@@ -27,8 +27,6 @@ if REFINEMENT_MODE == "none":
     OUT_DIR = PRED_DIR                          # write to base predictions dir
 elif REFINEMENT_MODE == "hmm":
     OUT_DIR = os.path.join(PRED_DIR, "hmmRefined")
-elif REFINEMENT_MODE == "hsmm":
-    OUT_DIR = os.path.join(PRED_DIR, "hsmmRefined")
 else:
     raise ValueError(f"Unknown REFINEMENT_MODE: '{REFINEMENT_MODE}'. Choose 'none', 'hmm', or 'hsmm'.")
 
@@ -205,7 +203,6 @@ def compute_gamma_xi(y_pred, B, A, alpha, beta):
                  * B[:, y_pred[t+1]][None, :]
                  * beta[t+1][None, :])
         xi[t] /= xi[t].sum() + 1e-300
-
     return gamma, xi
 
 def baum_welch(obs_probs_list, y_true_list, n_iter=20, tol=1e-4):
@@ -237,6 +234,8 @@ def baum_welch(obs_probs_list, y_true_list, n_iter=20, tol=1e-4):
     pi = pi_counts / pi_counts.sum()
 
     # A — empirical transition counts from GT label sequences
+    # Rows: Current state
+    # Columns: Next state
     A_counts = np.zeros((K, K))
     for y_true in y_true_list:
         for t in range(len(y_true) - 1):
@@ -244,6 +243,8 @@ def baum_welch(obs_probs_list, y_true_list, n_iter=20, tol=1e-4):
     A = A_counts / A_counts.sum(axis=1, keepdims=True)
 
     # B — empirical confusion matrix: GT state i, model predicted j
+    # Rows: Hidden state (ground truth label)
+    # Columns: Observed label (model output)
     B_counts = np.zeros((K, K))
     for y_true, y_pred in zip(y_true_list, y_pred_list):
         for t in range(len(y_true)):
@@ -270,10 +271,6 @@ def baum_welch(obs_probs_list, y_true_list, n_iter=20, tol=1e-4):
         index=[STAGE_NAMES[s] for s in STAGES],
         columns=[STAGE_NAMES[s] for s in STAGES]
     ))
-
-    print("\nDiagonal of B (correct prediction probability per state):")
-    for i, val in enumerate(np.diag(B)):
-        print(f"  {STAGE_NAMES[i+1]} : {val:.4f}")
 
     print("\nInitial State Distribution pi")
     for i in range(K):
@@ -343,10 +340,6 @@ def baum_welch(obs_probs_list, y_true_list, n_iter=20, tol=1e-4):
     )
     print(B_df)
 
-    print("\nDiagonal of B (correct prediction probability per state):")
-    for i, val in enumerate(np.diag(B)):
-        print(f"  {STAGE_NAMES[i+1]} : {val:.4f}")
-
     print("\nInitial State Distribution pi")
     for i in range(K):
         print(f"  {STAGE_NAMES[i+1]} : {pi[i]:.4f}")
@@ -355,31 +348,52 @@ def baum_welch(obs_probs_list, y_true_list, n_iter=20, tol=1e-4):
 
     return A, B, pi
 
-def estimate_hsmm_durations(train_ytrue_files, max_duration=200):
+def estimate_hmm_parameters_from_gt(y_true_list):
     """
-    Estimate per-stage duration distributions from run lengths in training data.
+    Estimate A and pi purely from ground-truth label sequences.
+ 
+    y_true_list : list of (T_i,) int arrays, values in 0..K-1
+ 
     Returns:
-        duration_probs: dict {stage_0idx: np.array of shape (max_duration,)}
-                        where duration_probs[s][d] = P(duration = d+1 | stage = s)
+        A  : (K, K)  transition matrix,  A[i,j] = P(next=j | cur=i)
+        pi : (K,)    initial distribution
     """
-    # Collect run lengths per stage
-    stage_durations = defaultdict(list)
-
-    for fpath in train_ytrue_files:
-        y = np.load(fpath).astype(int) - 1      # 0-indexed
-        runs = get_run_lengths(y)
-        for (stage, length) in runs:
-            stage_durations[stage].append(length)
-
-    duration_probs = {}
-    for s in range(nstage):
-        counts = np.ones(max_duration)           # Laplace smoothing
-        for length in stage_durations[s]:
-            idx = min(length, max_duration) - 1  # clip to max_duration
-            counts[idx] += 1
-        duration_probs[s] = counts / counts.sum()
-
-    return duration_probs
+    K = nstage
+ 
+    # pi — empirical first-stage frequency
+    pi_counts = np.zeros(K)
+    for y in y_true_list:
+        pi_counts[y[0]] += 1
+    pi = (pi_counts + 1e-6) / (pi_counts + 1e-6).sum()   # small Laplace smooth
+ 
+    # A — empirical bigram transition counts
+    A_counts = np.zeros((K, K))
+    for y in y_true_list:
+        for t in range(len(y) - 1):
+            A_counts[y[t], y[t + 1]] += 1
+    # Laplace smoothing to avoid zero transitions
+    A_counts += 1e-6
+    A = A_counts / A_counts.sum(axis=1, keepdims=True)
+ 
+    # ---- Diagnostics ----
+    print("\n" + "=" * 70)
+    print("HMM PARAMETERS (estimated from ground-truth sequences only)")
+    print("=" * 70)
+ 
+    print("\nTransition Matrix A  —  A[i,j] = P(next state j | current state i)\n")
+    print(pd.DataFrame(
+        np.round(A, 4),
+        index=[STAGE_NAMES[s] for s in STAGES],
+        columns=[STAGE_NAMES[s] for s in STAGES]
+    ))
+ 
+    print("\nInitial State Distribution pi")
+    for i in range(K):
+        print(f"  {STAGE_NAMES[i + 1]} : {pi[i]:.4f}")
+ 
+    print("=" * 70 + "\n")
+ 
+    return A, pi
 
 # ============================================================
 # VITERBI DECODING
@@ -415,84 +429,51 @@ def viterbi_hmm(obs_probs, log_A, log_B, log_pi):
 
     return path
 
-def viterbi_hsmm(obs_probs, log_A, log_pi, duration_probs, max_duration=200):
+# ============================================================
+# VITERBI WITH SOFTMAX EMISSIONS
+# ============================================================
+ 
+def viterbi_hmm_softmax(obs_probs, log_A, log_pi):
     """
-    HSMM Viterbi with explicit duration modelling.
-    obs_probs      : (T, 5) — softmax probability of each stage at each epoch
-    log_A          : (5, 5) — log transition matrix (no self-transitions used)
-    log_pi         : (5,)   — log initial distribution
-    duration_probs : dict {stage: array of shape (max_duration,)}
-    Returns predicted label sequence (0-indexed).
+    Viterbi decoding using the model's softmax output as emission probabilities.
+ 
+    At each timestep t the emission log-probability for hidden state k is:
+        log P(obs_t | state = k) = log softmax[t, k]
+ 
+    This replaces the old B-matrix lookup  (log_B[k, argmax_t])  with the
+    full continuous softmax vector, so observed and hidden spaces are no
+    longer the same discrete label set.
+ 
+    obs_probs : (T, K)  — softmax probability vectors from aggregate_probs()
+    log_A     : (K, K)  — log transition matrix
+    log_pi    : (K,)    — log initial distribution
+ 
+    Returns:
+        path : (T,) int array of decoded states, 0-indexed
     """
-    T = len(obs_probs)
-    K = nstage
-
-    log_obs = np.log(obs_probs + 1e-10)         # (T, 5)
-    log_dur = {s: np.log(duration_probs[s] + 1e-10) for s in range(K)}
-
-    # D[t, k] = best log-prob of sequence ending at t with state k finishing here
-    D       = np.full((T, K), -np.inf)
-    # backptr stores (prev_end_time, prev_state) for backtracking
-    bp_time = np.full((T, K), -1, dtype=int)
-    bp_state= np.full((T, K), -1, dtype=int)
-
-    # Initialise: segments starting at t=0
-    for k in range(K):
-        for d in range(1, min(max_duration, T) + 1):
-            end = d - 1                          # segment covers [0, end]
-            if end >= T:
-                break
-            dur_score = log_dur[k][d-1]
-            obs_score = log_obs[0:end+1, k].sum()
-            score     = log_pi[k] + dur_score + obs_score
-            if score > D[end, k]:
-                D[end, k]        = score
-                bp_time[end, k]  = -1            # segment starts at 0
-                bp_state[end, k] = -1
-
-    # Fill DP
+    T, K = obs_probs.shape
+    log_emit = np.log(obs_probs + 1e-10)   # (T, K) — log softmax, one value per (t, state)
+ 
+    viterbi = np.full((T, K), -np.inf)
+    backptr = np.zeros((T, K), dtype=int)
+ 
+    # Initialisation
+    viterbi[0] = log_pi + log_emit[0]     # pi[k] * softmax[0, k]
+ 
+    # Recursion
     for t in range(1, T):
-        for k in range(K):
-            for d in range(1, min(max_duration, t+1) + 1):
-                start = t - d + 1
-                if start <= 0:
-                    break
-                prev_end = start - 1
-                dur_score = log_dur[k][d-1]
-                obs_score = log_obs[start:t+1, k].sum()
-
-                for j in range(K):
-                    if j == k:
-                        continue               # HSMM: no self-transitions
-                    if D[prev_end, j] == -np.inf:
-                        continue
-                    score = D[prev_end, j] + log_A[j, k] + dur_score + obs_score
-                    if score > D[t, k]:
-                        D[t, k]        = score
-                        bp_time[t, k]  = prev_end
-                        bp_state[t, k] = j
-
-    # Backtrack from T-1
+        # scores[i, k] = viterbi[t-1, i] + log_A[i, k]
+        scores = viterbi[t - 1][:, None] + log_A   # (K, K)
+        best_prev = np.argmax(scores, axis=0)       # (K,)
+        viterbi[t] = scores[best_prev, np.arange(K)] + log_emit[t]
+        backptr[t] = best_prev
+ 
+    # Backtrack
     path = np.zeros(T, dtype=int)
-    cur_state = np.argmax(D[T-1])
-    cur_time  = T - 1
-
-    while cur_time >= 0:
-        prev_time  = bp_time[cur_time, cur_state]
-        prev_state = bp_state[cur_time, cur_state]
-
-        if prev_time == -1:
-            start = 0
-        else:
-            start = prev_time + 1
-
-        path[start:cur_time+1] = cur_state
-
-        if prev_time == -1:
-            break
-        cur_time  = prev_time
-        cur_state = prev_state
-
+    path[T - 1] = np.argmax(viterbi[T - 1])
+    for t in range(T - 2, -1, -1):
+        path[t] = backptr[t + 1, path[t + 1]]
+ 
     return path   # 0-indexed
 
 # ============================================================
@@ -550,23 +531,11 @@ for patient in patients:
             train_ytrue_list.append((label-1).astype(int))
             train_sum += valid_len
 
-        print(f"  Running Baum-Welch on {len(obs_probs_list)} training nights...")
-        A_learned, B_learned, pi_learned = baum_welch(obs_probs_list, train_ytrue_list)
+       # print(f"  Running Baum-Welch on {len(obs_probs_list)} training nights...")
+        A_learned, pi_learned = estimate_hmm_parameters_from_gt(train_ytrue_list)
         log_A  = np.log(A_learned + 1e-300)
-        log_B  = np.log(B_learned + 1e-300)
+        #log_B  = np.log(B_learned + 1e-300)
         log_pi = np.log(pi_learned + 1e-300)
-    # ----------------------------------------------------------
-    # HSMM: estimate duration distributions from training subjects
-    # ----------------------------------------------------------
-    elif REFINEMENT_MODE == "hsmm":
-        train_ytrue_files = sorted(glob.glob(os.path.join(PRED_DIR, "*_ytrue.npy")))
-        train_ytrue_files = [
-            f for f in train_ytrue_files
-            if not os.path.basename(f).startswith(patient)
-        ]
-        log_A, log_B, log_pi = estimate_hmm_parameters(train_ytrue_files)
-        duration_probs = estimate_hsmm_durations(train_ytrue_files)
-        print(f"  Duration distributions estimated.")
     # ----------------------------------------------------------
     # Per-night prediction
     # ----------------------------------------------------------
@@ -603,12 +572,14 @@ for patient in patients:
         elif REFINEMENT_MODE == "hmm":
             obs_probs = aggregate_probs(score_night)
 
-            path = viterbi_hmm(
-                obs_probs,
-                log_A,
-                log_B,
-                log_pi
-            )
+           #path = viterbi_hmm(
+            #    obs_probs,
+            #    log_A,
+            #    log_B,
+            #    log_pi
+            #)
+
+            path = viterbi_hmm_softmax(obs_probs, log_A, log_pi)
 
             y_pred_final = path + 1
 
@@ -624,38 +595,6 @@ for patient in patients:
 
             print(
                 f"  HMM changed epochs: "
-                f"{num_changed}/{len(y_pred_raw)} "
-                f"({percentage_changed:.2f}%)"
-            )
-
-        # ----------------------------------------------------------
-        # HSMM REFINEMENT
-        # ----------------------------------------------------------
-
-        elif REFINEMENT_MODE == "hsmm":
-            obs_probs = aggregate_probs(score_night)
-
-            path = viterbi_hsmm(
-                obs_probs,
-                log_A,
-                log_pi,
-                duration_probs
-            )
-
-            y_pred_final = path + 1
-
-            # ------------------------------------------------------
-            # Compare raw vs HSMM
-            # ------------------------------------------------------
-
-            num_changed = np.sum(y_pred_raw != y_pred_final)
-
-            percentage_changed = (
-                100 * num_changed / len(y_pred_raw)
-            )
-
-            print(
-                f"  HSMM changed epochs: "
                 f"{num_changed}/{len(y_pred_raw)} "
                 f"({percentage_changed:.2f}%)"
             )
