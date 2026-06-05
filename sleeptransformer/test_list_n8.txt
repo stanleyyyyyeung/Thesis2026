@@ -1,0 +1,2 @@
+/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n08_1_eeg.mat	1037
+/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n08_2_eeg.mat	1031
