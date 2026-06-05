@@ -1,2 +1,0 @@
-../../mat_30min/n17_1_eeg.mat	1227
-../../mat_30min/n17_2_eeg.mat	1079
