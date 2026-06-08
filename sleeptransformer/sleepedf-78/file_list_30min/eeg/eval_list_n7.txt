@@ -1,0 +1,13 @@
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n02_1_eeg.mat	1141
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n02_2_eeg.mat	1229
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n04_1_eeg.mat	1793
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n04_2_eeg.mat	1802
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n17_1_eeg.mat	1227
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n17_2_eeg.mat	1079
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n37_2_eeg.mat	872
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n38_1_eeg.mat	964
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n38_2_eeg.mat	967
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n56_1_eeg.mat	1276
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n56_2_eeg.mat	1169
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n71_1_eeg.mat	1080
+/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/mat_30min/n71_2_eeg.mat	1679
