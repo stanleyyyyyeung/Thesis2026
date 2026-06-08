@@ -1,8 +1,0 @@
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n02_1_eeg.mat	1141
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n02_2_eeg.mat	1229
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n06_1_eeg.mat	917
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n06_2_eeg.mat	1291
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n09_1_eeg.mat	1133
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n09_2_eeg.mat	1101
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n15_1_eeg.mat	1052
-/srv/scratch/z5423210/StanleyThesis2026/lseqsleep/L-SeqSleepNet/sleepedf-20/mat_30min/n15_2_eeg.mat	997
