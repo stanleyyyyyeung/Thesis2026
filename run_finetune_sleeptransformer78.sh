@@ -18,7 +18,7 @@ echo "Run ${runIndex}"
 
 # --- 3. Paths ---
 CODE="/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer"
-PRETRAINED="${CODE}/sleepedf-78/best_model_acc"
+PRETRAINED="${CODE}/best_model_acc"
 FILE_LIST="${CODE}/sleepedf-78/file_list_30min/eeg"
 OUT_BASE="/srv/scratch/z5423210/StanleyThesis2026/out_sleeptransformer/sleepedf-78/run${runIndex}/out"
 CONTAINER="/srv/scratch/z5423210/tf22_py3.sif"
