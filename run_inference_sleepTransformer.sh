@@ -21,7 +21,8 @@ echo "Running inference for run${RUN_NUMBER}..."
 
 for i in {1..20}
 do
-  OUT_DIR="$OUT_BASE/n${i}"
+ FINETUNED="/srv/scratch/z5423210/StanleyThesis2026/out_sleeptransformer/sleepedf-20/run${RUN_NUMBER}/out/n${i}/checkpoint"
+ OUT_DIR="$OUT_BASE/n${i}"
   mkdir -p "$OUT_DIR"
 
   echo "Starting inference n${i}..."
@@ -37,6 +38,7 @@ do
         --eog_test_data '' \
         --emg_train_data '' \
         --emg_test_data '' \
+        --checkpoint_dir '${FINETUNED}' \
         --out_dir '${OUT_DIR}/' \
         --seq_len 21 \
         --num_blocks 4

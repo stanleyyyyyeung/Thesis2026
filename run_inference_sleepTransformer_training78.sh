@@ -23,7 +23,7 @@ echo "Running inference for run${RUN_NUMBER}..."
 for i in {1..10}
 do
   OUT_DIR="$OUT_BASE/n${i}"
-  CHECKPOINT="$OUT_BASE/n${i}/checkpoint"
+  FINETUNED=""
   mkdir -p "$OUT_DIR"
 
   PYTHONPATH=$PYTHONPATH_DIR \
@@ -38,6 +38,7 @@ do
         --emg_train_data '' \
         --emg_test_data '' \
         --out_dir '${OUT_DIR}/' \
+        --checkpoint_dir '/srv/scratch/z5423210/StanleyThesis2026/out_sleeptransformer/sleepedf-78/run${RUN_NUMBER}/out/n${i}/checkpoint' \
         --seq_len 21 \
         --num_blocks 4
     " \
