@@ -38,7 +38,6 @@ do
         --emg_train_data '' \
         --emg_test_data '' \
         --out_dir '${OUT_DIR}/' \
-        --checkpoint_dir '${CODE}/sleepedf-78/' \
         --seq_len 21 \
         --num_blocks 4
     " \
