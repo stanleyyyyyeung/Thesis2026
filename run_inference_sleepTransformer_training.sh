@@ -2,7 +2,7 @@
 #PBS -l select=1:ncpus=8:ngpus=1:mem=46gb
 #PBS -l walltime=5:00:00
 #PBS -q eleceng
-#PBS -N LSeq_Inference
+#PBS -N SleepTrans_Inference_Training
 
 # ===== EDIT THIS BEFORE EACH RUN =====
 RUN_NUMBER=1
