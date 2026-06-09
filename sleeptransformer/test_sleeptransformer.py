@@ -264,7 +264,7 @@ with tf.Graph().as_default():
 
             test_acc = np.zeros([config.epoch_seq_len])
             for n in range(config.epoch_seq_len):
-                test_acc[n] = accuracy_score(yhat[:,n], y[:,n]) # excluding the indexes of the recordings
+                test_acc[n] = accuracy_score(yhat[:,n].astype(int), y[:,n].astype(int)) # excluding the indexes of the recordings
 
             return test_acc, yhat, score, output_loss, total_loss
 
