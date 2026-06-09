@@ -212,6 +212,7 @@ with tf.Graph().as_default():
             global_step = tf.Variable(0, name="global_step", trainable=False)
             optimizer = tf.train.AdamOptimizer(config.learning_rate)
             grads_and_vars = optimizer.compute_gradients(net.loss)
+            grads_and_vars = [(tf.clip_by_norm(g, 1.0), v) for g, v in grads_and_vars if g is not None] # Clip the gradient to prevent gradient explosion
             train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
 
         # initialize all variables
