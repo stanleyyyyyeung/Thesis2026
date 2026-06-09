@@ -294,7 +294,7 @@ with tf.Graph().as_default():
                 score[(test_step - 1) * factor * config.batch_size: len(gen.data_index)] = score_
                 output_loss += output_loss_
                 total_loss += total_loss_
-            yhat = yhat + 1 # make label starting from 1 rather than 0
+            yhat = (yhat + 1).astype(int) # make label starting from 1 rather than 0
 
             return yhat, score, output_loss, total_loss
 
