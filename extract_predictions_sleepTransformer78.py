@@ -12,7 +12,7 @@ from scipy.stats import entropy
 RUN_NUMBER = 1
 
 # Mode: "none", "hmm", or "hsmm"
-REFINEMENT_MODE = "hmm"
+REFINEMENT_MODE = "none"
 
 # ============================================================
 # PATHS
@@ -499,10 +499,13 @@ for patient in patients:
     score      = mat['score']                        # (N, 21, 5)
     score      = np.transpose(score, (1, 0, 2))      # → (21, N, 5)
 
-    test_list_path = f"/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/test_list_n{patient[1:]}.txt"
+    test_list_path = f"/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/file_list_30min/eeg/test_list_n{patient[1:]}.txt"
     with open(test_list_path, "r") as f:
-        test_files = [line.strip().split('\t')[0] for line in f if line.strip()]
-    test_files = sorted(test_files)
+        test_files = []
+        for line in f:
+            if line.strip():
+                parts = line.strip().split('\t')
+                test_files.append((parts[0], int(parts[1])))
 
     # HMM / HSMM: estimate parameters from all OTHER subjects
     if REFINEMENT_MODE == "hmm":
@@ -515,17 +518,20 @@ for patient in patients:
         train_score     = np.transpose(train_mat['score'], (1, 0, 2))  # (21, N, 5)
 
         # Load ground truth labels for all training subjects of this fold
-        train_list_path = f"/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/train_list_n{patient[1:]}.txt"
+        train_list_path = f"/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer/sleepedf-78/file_list_30min/eeg/train_list_n{patient[1:]}.txt"
         with open(train_list_path, "r") as f:
-            train_files = [line.strip().split('\t')[0] for line in f if line.strip()]
+            train_files = []
+            for line in f:
+                if line.strip():
+                    parts = line.strip().split('\t')
+                    train_files.append((parts[0], int(parts[1])))
 
         train_sum = 0
 
-        for fpath in train_files:
+        for fpath, n_epochs in train_files:
             data = hdf5storage.loadmat(file_name=fpath)
             label = np.array(data['label']).squeeze()
-            n = len(label)
-            valid_len = n - (seq_len - 1)
+            valid_len = n_epochs - (seq_len - 1)
             night_score = train_score[:, train_sum:train_sum + valid_len, :]
             obs_probs_list.append(aggregate_probs(night_score))
             train_ytrue_list.append((label-1).astype(int))
@@ -541,14 +547,13 @@ for patient in patients:
     # ----------------------------------------------------------
     sum_size = 0
 
-    for i, fpath in enumerate(test_files):
+    for i, (fpath, n_epochs) in enumerate(test_files):
         data  = hdf5storage.loadmat(file_name=fpath)
         label = np.array(data['label']).squeeze()
 
         y_true = label
 
-        n = len(label)
-        valid_len = n - (seq_len - 1)
+        valid_len = n_epochs - (seq_len - 1)
 
         score_night = score[:, sum_size:sum_size + valid_len, :]
 
@@ -618,10 +623,16 @@ for patient in patients:
         # SAVE
         # ----------------------------------------------------------
 
+        # Extracting the patient and night number
+        mat_basename = os.path.basename(fpath)           # "n15_1_eeg.mat"
+        parts = mat_basename.replace("_eeg.mat", "").split("_")  # ["n15", "1"]
+        patient_id = parts[0]                            # "n15"
+        night_num  = parts[1]                            # "1"
+
         np.save(
             os.path.join(
                 OUT_DIR,
-                f"{patient}_night{i+1}_ypred.npy"
+                f"{patient_id}_night{night_num}_ypred.npy"
             ),
             y_pred_final
         )
@@ -629,7 +640,7 @@ for patient in patients:
         np.save(
             os.path.join(
                 OUT_DIR,
-                f"{patient}_night{i+1}_ytrue.npy"
+                f"{patient_id}_night{night_num}_ytrue.npy"
             ),
             y_true
         )
