@@ -604,6 +604,15 @@ for patient in patients:
                 f"({percentage_changed:.2f}%)"
             )
 
+        # Print any data with shape mismatch between y_pred and y_true
+        if len(y_pred_final) != len(y_true):
+            print(
+                f"  SKIPPING {mat_basename}: "
+                f"y_pred length {len(y_pred_final)} != y_true length {len(y_true)}"
+            )
+            sum_size += valid_len
+            continue
+
         # ----------------------------------------------------------
         # PRINT SUMMARY
         # ----------------------------------------------------------
