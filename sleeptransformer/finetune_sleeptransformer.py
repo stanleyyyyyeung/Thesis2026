@@ -382,7 +382,7 @@ with tf.Graph().as_default():
                         #    _evaluate_reduce(gen=test_gen_wrapper.gen, log_filename="test_result_log.txt")
 
                         early_stop_count += 1
-                        if(eval_acc >= best_acc):
+                        if(not np.isnan(eval_total_loss) and eval_acc >= best_acc):
                             early_stop_count = 0 # reset
                             best_acc = eval_acc
                             checkpoint_name = os.path.join(checkpoint_path, 'model_step' + str(current_step) +'.ckpt')
