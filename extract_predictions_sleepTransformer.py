@@ -307,6 +307,18 @@ for patient in patients:
         elif REFINEMENT_MODE == "hmm":
             obs_probs = aggregate_probs(score_night)
 
+            # Checking confidence in raw softmax output
+            max_prob = obs_probs.max(axis=1)         # Max probility for each epoch (effectively predicted stage by the model)
+            ent = entropy(obs_probs, axis=1, base=2) # entropy (high value indicates low confidence in model prediction)
+            
+            print(
+                f"  Emission confidence — "
+                f"mean max-prob: {max_prob.mean():.3f}, "
+                f"median: {np.median(max_prob):.3f}, "
+                f"% epochs >0.95 conf: {100*np.mean(max_prob > 0.95):.1f}%, "
+                f"mean entropy: {ent.mean():.3f} bits (max={np.log2(nstage):.2f})"
+            )
+
             for alpha in ALPHA_VALUES:
                 path = viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha=alpha)
                 y_pred_alpha = path + 1
