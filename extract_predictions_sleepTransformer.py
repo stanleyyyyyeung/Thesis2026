@@ -309,7 +309,7 @@ for patient in patients:
 
             # Checking confidence in raw softmax output
             max_prob = obs_probs.max(axis=1)         # Max probility for each epoch (effectively predicted stage by the model)
-            ent = entropy(obs_probs, axis=1, base=2) # entropy (high value indicates low confidence in model prediction)
+            ent = entropy(obs_probs, axis=1, base=2) # Shannon entropy (high value indicates low confidence in model prediction)
             
             print(
                 f"  Emission confidence — "
