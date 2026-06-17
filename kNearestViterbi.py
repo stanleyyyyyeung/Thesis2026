@@ -98,9 +98,8 @@ def calc_MMI_loss(A, P, Pi, alpha, k_best, K, T, labels, device="cuda"):
         transitions[labels[i], labels[i + 1]] += 1
     num = num + alpha_optimizable * (transitions * A_optimizable).sum()
 
-    den = 0
+    den_terms = []
     transitions = torch.zeros((K, K), device=device)
-
     for i in range(len(best_paths)):
         if i == exclude_path:
             continue
@@ -109,8 +108,8 @@ def calc_MMI_loss(A, P, Pi, alpha, k_best, K, T, labels, device="cuda"):
         for j in range(len(best_paths[i]) - 1):
             transitions[best_paths[i][j], best_paths[i][j + 1]] += 1
         den_temp = den_temp + alpha_optimizable * (transitions * A_optimizable).sum()
-        den = den + den_temp.exp()
-    den = torch.log(den)
+        den_terms.append(den_temp)
+    den = torch.logsumexp(torch.stack(den_terms), dim=0)
 
     return best_paths[0], -(num - den)
 
@@ -135,33 +134,37 @@ def train_hmm_mmi(obs_probs_list, train_ytrue_list, A_init, pi_init,
 
     for epoch in range(n_epochs):
         epoch_loss = 0.0
+        MAX_T = 200
         for obs_probs, y_true in zip(obs_probs_list, train_ytrue_list):
-            # Normalise A_raw → valid log-prob transition matrix each forward pass
-            A_log = A_raw - torch.logsumexp(A_raw, dim=1, keepdim=True)  # (K,K) log-softmax rows
-            A_prob = A_log.exp()
+            for start in range(0, len(y_true), MAX_T):
+                obs_chunk = obs_probs[start:start + MAX_T]
+                label_chunk = y_true[start:start + MAX_T]
+                if len(label_chunk) < 2:
+                    continue
 
-            T = len(y_true)
-            P = torch.tensor(
-                np.log(obs_probs + 1e-10), dtype=torch.float64
-            ).to(device)
-            labels = torch.tensor(y_true, dtype=torch.long).to(device)
+                A_log = A_raw - torch.logsumexp(A_raw, dim=1, keepdim=True)
+                A_prob = A_log.exp()
 
-            _, loss = calc_MMI_loss(
-                A_prob, P, pi, alpha,
-                k_best=k_best, K=K, T=T,
-                labels=labels, device=device
-            )
+                T = len(label_chunk)
+                P = torch.tensor(np.log(obs_chunk + 1e-10), dtype=torch.float64).to(device)
+                labels = torch.tensor(label_chunk, dtype=torch.long).to(device)
 
-            optimiser.zero_grad()
-            loss.backward()
-            optimiser.step()
-            epoch_loss += loss.item()
+                _, loss = calc_MMI_loss(
+                    A_prob, P, pi, alpha,
+                    k_best=k_best, K=K, T=T,
+                    labels=labels, device=device
+                )
 
+                optimiser.zero_grad()
+                loss.backward()
+                optimiser.step()
+                epoch_loss += loss.item()
         print(f"  [MMI epoch {epoch+1}/{n_epochs}] loss={epoch_loss:.4f}  alpha={alpha.item():.4f}")
 
     # Return numpy versions for your existing viterbi_hmm_softmax
-    A_final = A_log.exp().detach().cpu().numpy()
-    pi_final = pi_init  # pi not trained, consistent with paper
+    A_log_final = A_raw - torch.logsumexp(A_raw, dim=1, keepdim=True)
+    A_final = A_log_final.exp().detach().cpu().numpy()
+    pi_final = pi_init
     alpha_final = alpha.item()
     print(f"\n  Training complete. Final alpha={alpha_final:.4f}")
     return A_final, pi_final, alpha_final
