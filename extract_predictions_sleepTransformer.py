@@ -5,14 +5,16 @@ import glob
 from collections import defaultdict
 import pandas as pd
 from scipy.stats import entropy
+import torch
+from kNearestViterbi import calc_viterbi_k_best, calc_MMI_loss, train_hmm_mmi
 
 # ============================================================
 # CONFIGURATION — EDIT THESE BEFORE EACH RUN
 # ============================================================
 RUN_NUMBER = 1
 
-# Mode: "none", "hmm", or "hsmm"
-REFINEMENT_MODE = "hmm"
+# Mode: "none", "hmm", or "hmm_trained"
+REFINEMENT_MODE = "hmm_trained"
 
 # ============================================================
 # PATHS
@@ -26,10 +28,10 @@ ALPHA_VALUES = [0.0, 0.1, 0.2, 0.5, 0.7, 1.0, 2.0, 5.0]
 # Output directory depends on mode
 if REFINEMENT_MODE == "none":
     OUT_DIR = PRED_DIR                          # write to base predictions dir
-elif REFINEMENT_MODE == "hmm":
+elif REFINEMENT_MODE == "hmm" or REFINEMENT_MODE == "hmm_trained":
     OUT_DIR = os.path.join(PRED_DIR, "hmmRefined")
 else:
-    raise ValueError(f"Unknown REFINEMENT_MODE: '{REFINEMENT_MODE}'. Choose 'none', 'hmm', or 'hsmm'.")
+    raise ValueError(f"Unknown REFINEMENT_MODE: '{REFINEMENT_MODE}'. Choose 'none', 'hmm', or 'hmm_trained'.")
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -233,7 +235,7 @@ for patient in patients:
     test_files = sorted(test_files)
 
     # HMM / HSMM: estimate parameters from all OTHER subjects
-    if REFINEMENT_MODE == "hmm":
+    if REFINEMENT_MODE in ("hmm", "hmm_trained"):
         obs_probs_list = []
         train_ytrue_list = []
 
@@ -260,9 +262,24 @@ for patient in patients:
             train_sum += valid_len
 
        # print(f"  Running Baum-Welch on {len(obs_probs_list)} training nights...")
-        A, pi = estimate_hmm_parameters_from_gt(train_ytrue_list)
-        log_A  = np.log(A + 1e-300)
-        log_pi = np.log(pi + 1e-300)
+        A_init, pi_init = estimate_hmm_parameters_from_gt(train_ytrue_list)
+        log_A  = np.log(A_init + 1e-300)
+        log_pi = np.log(pi_init + 1e-300)
+
+        if REFINEMENT_MODE == "hmm_trained":
+            A, pi, trained_alpha = train_hmm_mmi(
+                obs_probs_list, train_ytrue_list,
+                A_init, pi_init
+            )
+            log_A  = np.log(A + 1e-300)
+            log_pi = np.log(pi + 1e-300)
+            print(f"\n  Trained alpha: {trained_alpha:.4f}")
+            print(f"\n  Trained Transition Matrix A:")
+            print(pd.DataFrame(
+                np.round(A, 4),
+                index=[STAGE_NAMES[s] for s in STAGES],
+                columns=[STAGE_NAMES[s] for s in STAGES]
+            ))
     # ----------------------------------------------------------
     # Per-night prediction
     # ----------------------------------------------------------
@@ -319,37 +336,29 @@ for patient in patients:
                 f"mean entropy: {ent.mean():.3f} bits (max={np.log2(nstage):.2f})"
             )
 
+            alpha_preds = {}
+
             for alpha in ALPHA_VALUES:
                 path = viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha=alpha)
-                y_pred_alpha = path + 1
-
-                np.save(
-                    os.path.join(
-                        OUT_DIR,
-                        f"{patient_id}_night{night_num}_ypred_alpha{alpha:.1f}.npy"
-                    ),
-                    y_pred_alpha
-                )
+                alpha_preds[alpha] = path + 1
 
             # use last alpha's result for the summary print/comparison below
-            y_pred_final = y_pred_alpha
+            y_pred_final = alpha_preds[ALPHA_VALUES[-1]]
+            num_changed = np.sum(y_pred_raw != y_pred_final)
+            print(f"  HMM changed epochs: {num_changed}/{len(y_pred_raw)} ({100*num_changed/len(y_pred_raw):.2f}%)")
 
-            # ------------------------------------------------------
-            # Compare raw vs HMM (last alpha in ALPHA_VALUES)
-            # ------------------------------------------------------
+        elif REFINEMENT_MODE == "hmm_trained":
+            obs_probs = aggregate_probs(score_night)
+            path = viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha=trained_alpha)
+            y_pred_final = path + 1
 
             num_changed = np.sum(y_pred_raw != y_pred_final)
-
-            percentage_changed = (
-                100 * num_changed / len(y_pred_raw)
-            )
-
             print(
-                f"  HMM changed epochs: "
+                f"  HMM-trained changed epochs: "
                 f"{num_changed}/{len(y_pred_raw)} "
-                f"({percentage_changed:.2f}%)"
+                f"({100*num_changed/len(y_pred_raw):.2f}%)"
             )
-
+             
         # Check shape mismatch
         if len(y_pred_final) != len(y_true):
             print(
@@ -389,15 +398,17 @@ for patient in patients:
 
         # Only save a single "ypred" file for non-HMM modes.
         # For "hmm", per-alpha files were already saved above.
-        if REFINEMENT_MODE != "hmm":
-            np.save(
-                os.path.join(
-                    OUT_DIR,
-                    f"{patient_id}_night{night_num}_ypred.npy"
-                ),
-                y_pred_final
-            )
-
+        if REFINEMENT_MODE == "none":
+            np.save(os.path.join(OUT_DIR, f"{patient_id}_night{night_num}_ypred.npy"), y_pred_final)
+        elif REFINEMENT_MODE == "hmm":
+            for alpha, y_pred_alpha in alpha_preds.items():
+                np.save(
+                    os.path.join(OUT_DIR, f"{patient_id}_night{night_num}_ypred_alpha{alpha:.1f}.npy"),
+                    y_pred_alpha
+                )
+        elif REFINEMENT_MODE == "hmm_trained":
+            np.save(os.path.join(OUT_DIR, f"{patient_id}_night{night_num}_ypred_trained.npy"), y_pred_final)
+        
         sum_size += valid_len
 
     print(f"  Done {patient}\n")
