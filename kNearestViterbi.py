@@ -126,9 +126,9 @@ def train_hmm_mmi(obs_probs_list, train_ytrue_list, A_init, pi_init,
 
     # Trainable parameters — warm start from empirical estimates
     A_raw = torch.nn.Parameter(
-        torch.tensor(np.log(A_init + 1e-10), dtype=torch.float64)
+        torch.tensor(np.log(A_init + 1e-10), dtype=torch.float64).to(device)
     )
-    alpha = torch.nn.Parameter(torch.tensor(0.7, dtype=torch.float64))  # initial alpha obtained from alpha sweep prior to training
+    alpha = torch.nn.Parameter(torch.tensor(0.7, dtype=torch.float64).to(device))  # initial alpha obtained from alpha sweep prior to training
     pi = torch.tensor(np.log(pi_init + 1e-10), dtype=torch.float64).to(device)
 
     optimiser = torch.optim.Adam([A_raw, alpha], lr=lr)
@@ -143,8 +143,8 @@ def train_hmm_mmi(obs_probs_list, train_ytrue_list, A_init, pi_init,
             T = len(y_true)
             P = torch.tensor(
                 np.log(obs_probs + 1e-10), dtype=torch.float64
-            )  # (T, K) log-emissions
-            labels = torch.tensor(y_true, dtype=torch.long)
+            ).to(device)
+            labels = torch.tensor(y_true, dtype=torch.long).to(device)
 
             _, loss = calc_MMI_loss(
                 A_prob, P, pi, alpha,
@@ -160,7 +160,7 @@ def train_hmm_mmi(obs_probs_list, train_ytrue_list, A_init, pi_init,
         print(f"  [MMI epoch {epoch+1}/{n_epochs}] loss={epoch_loss:.4f}  alpha={alpha.item():.4f}")
 
     # Return numpy versions for your existing viterbi_hmm_softmax
-    A_final  = A_log.exp().detach().numpy()
+    A_final = A_log.exp().detach().cpu().numpy()
     pi_final = pi_init  # pi not trained, consistent with paper
     alpha_final = alpha.item()
     print(f"\n  Training complete. Final alpha={alpha_final:.4f}")
