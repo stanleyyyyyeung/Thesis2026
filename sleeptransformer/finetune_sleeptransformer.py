@@ -343,6 +343,15 @@ with tf.Graph().as_default():
             _evaluate_reduce(gen=valid_gen_wrapper.gen, log_filename="eval_result_log.txt")
         valid_gen_wrapper.gen.reset_reduce_pointer()
 
+        best_acc = eval_acc
+        checkpoint_name = os.path.join(checkpoint_path, 'model_step0.ckpt')
+        saver.save(sess, checkpoint_name)
+        shutil.copy(checkpoint_name + '.data-00000-of-00001', os.path.join(checkpoint_path, 'best_model_acc.data-00000-of-00001'))
+        shutil.copy(checkpoint_name + '.index', os.path.join(checkpoint_path, 'best_model_acc.index'))
+        shutil.copy(checkpoint_name + '.meta', os.path.join(checkpoint_path, 'best_model_acc.meta'))
+        with open(os.path.join(out_dir, "current_best.txt"), "a") as text_file:
+            text_file.write("{:g}\n".format(eval_acc))
+
         start_time = time.time()
         # Loop over number of epochs
         for epoch in range(config.training_epoch):
