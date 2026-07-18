@@ -18,7 +18,7 @@ CODE="/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer"
 # NOTE: --checkpoint_dir must be the FOLDER containing best_model_acc.* files
 # (test_sleeptransformer.py appends "/best_model_acc" internally) - passing
 # the file prefix itself here duplicates the path and fails to find the file.
-CHECKPOINT="/srv/scratch/z5423210/StanleyThesis2026/out_sleeptransformer/nch/run${RUN_NUMBER}/{AGE_BIN}/checkpoint"
+CHECKPOINT="/srv/scratch/z5423210/StanleyThesis2026/out_sleeptransformer/nch/run${RUN_NUMBER}/${AGE_BIN}/checkpoint"
 
 # NCH file lists - used for BOTH normalization stats (train) and the actual
 # test-set inference (test), per age bin
