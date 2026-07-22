@@ -21,7 +21,7 @@ echo "=========================================="
 echo "ISRUC full finetuning run"
 echo "=========================================="
 
-export APPTAINERENV_LD_LIBRARY_PATH="/usr/lib64:${LD_LIBRARY_PATH}"
+export APPTAINERENV_TRITON_LIBCUDA_PATH="/.singularity.d/libs"
 
 PYTHONPATH=$PYTHONPATH_FULL \
 apptainer exec --nv -B /srv:/srv "$SIF" \
