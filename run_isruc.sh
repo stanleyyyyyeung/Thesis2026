@@ -1,37 +1,43 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=8:ngpus=1:mem=32gb
-#PBS -l walltime=01:00:00
-#PBS -N ISRUC_Test_Inference
+#PBS -l walltime=12:00:00
+#PBS -N ISRUC_Finetune
 
-# Set this to match the run number used for the corresponding finetuning job
-RUN_NUMBER=1
-
-# --- 1. Cleanup old logs ---
-rm -f /srv/scratch/z5423210/StanleyThesis2026/ISRUC_Test_Inference.[oe]*
-
-# --- 2. Apptainer environment ---
 export APPTAINER_CACHEDIR=/srv/scratch/z5423210/.apptainer_cache
 export APPTAINER_TMPDIR=/srv/scratch/z5423210/.apptainer_tmp
 
-# --- 3. Paths ---
 PROJECT_ROOT=/srv/scratch/z5423210/StanleyThesis2026
 EEGMAMBA_DIR=$PROJECT_ROOT/EEGMamba
 SIF=/srv/scratch/z5423210/tf22_py3.sif
+DATASETS_DIR=/srv/scratch/speechdata/sleep_data/ISRUC
+MODEL_DIR="$PROJECT_ROOT/EEGMamba/model_weights/ISRUC_full"
+
 PYTHONPATH_FULL=$EEGMAMBA_DIR:/srv/scratch/z5423210/python_packages
 
 cd "$EEGMAMBA_DIR"
 
-# --- 4. Run inference ---
+echo "=========================================="
+echo "ISRUC full finetuning run, label_smoothing=0"
+echo "Overwriting previous checkpoint in $MODEL_DIR"
+echo "=========================================="
+
+rm -f "$MODEL_DIR"/*.pth
+
+export APPTAINERENV_TRITON_LIBCUDA_PATH="/.singularity.d/libs"
+
 PYTHONPATH=$PYTHONPATH_FULL \
 apptainer exec --nv -B /srv:/srv "$SIF" \
-    python3 test_isruc.py \
+    python3 finetune_main.py \
+    --downstream_dataset ISRUC \
+    --datasets_dir "$DATASETS_DIR" \
+    --num_of_classes 5 \
+    --model_dir "$MODEL_DIR" \
     --cuda 0 \
-    --run_number "$RUN_NUMBER"
+    --epochs 50 \
+    --num_workers 8 \
+    --label_smoothing 0
 
-EXIT_CODE=$?
-if [ $EXIT_CODE -ne 0 ]; then
-    echo "Inference FAILED (exit code $EXIT_CODE)."
-    exit 1
-fi
-
-echo "Inference complete. Predictions saved to /srv/scratch/z5423210/StanleyThesis2026/out_eegmamba/isruc/run${RUN_NUMBER}/out/predictions/"
+echo ""
+echo "=========================================="
+echo "Run finished, exit code $?"
+echo "=========================================="
