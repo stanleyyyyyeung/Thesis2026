@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -l select=1:ncpus=8:ngpus=1:mem=32gb
+#PBS -l select=1:ncpus=8:ngpus=1:mem=32gb:gpu_model=A100
 #PBS -l walltime=01:00:00
 #PBS -N ISRUC_Test_Inference
 # Set this to match the run number used for the corresponding finetuning job
