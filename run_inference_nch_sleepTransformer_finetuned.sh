@@ -1,12 +1,12 @@
 #!/bin/bash
-#PBS -J 1-4
+#PBS -J 1-5
 #PBS -l select=1:ncpus=8:ngpus=1:mem=46gb
 #PBS -l walltime=6:00:00
 #PBS -q eleceng
 #PBS -N SleepTrans_NCH_Inference_Pretrained
 
 # ===== PBS job array maps 1-4 -> age bin =====
-AGE_BINS=(1-2y 3-5y 6-12y 13-18y)
+AGE_BINS=(1-2y 3-5y 6-12y 13-18y 19-100y)
 AGE_BIN=${AGE_BINS[$((PBS_ARRAY_INDEX - 1))]}
 
 RUN_NUMBER=1

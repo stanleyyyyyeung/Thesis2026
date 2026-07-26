@@ -3,14 +3,14 @@
 #PBS -l walltime=12:00:00
 #PBS -q eleceng
 #PBS -N SleepTrans_NCH_Finetune
-#PBS -J 1-4
+#PBS -J 1-5
 
 # --- 1. Environment ---
 export APPTAINER_CACHEDIR=/srv/scratch/z5423210/.apptainer_cache
 export APPTAINER_TMPDIR=/srv/scratch/z5423210/.apptainer_tmp
 
 # --- 2. Age bin and run index ---
-bins=("1-2y" "3-5y" "6-12y" "13-18y")
+bins=("1-2y" "3-5y" "6-12y" "13-18y" "19-100y")
 i=${PBS_ARRAY_INDEX}
 bin=${bins[$((i-1))]}
 echo "Running age bin: ${bin}"
