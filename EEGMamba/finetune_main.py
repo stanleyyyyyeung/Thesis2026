@@ -6,7 +6,7 @@ import torch
 
 from datasets import faced_dataset, seedv_dataset, physio_dataset, shu_dataset, isruc_dataset, chb_dataset, \
     speech_dataset, mumtaz_dataset, seedvig_dataset, stress_dataset, tuev_dataset, tuab_dataset, bciciv2a_dataset, \
-    modma_dataset
+    modma_dataset, nch_dataset
 from finetune_trainer import Trainer
 from models import model_for_faced, model_for_seedv, model_for_physio, model_for_shu, model_for_isruc, model_for_chb, \
     model_for_speech, model_for_mumtaz, model_for_seedvig, model_for_stress, model_for_tuev, model_for_tuab, \
@@ -35,12 +35,14 @@ def main():
     """############ Downstream dataset settings ############"""
     parser.add_argument('--downstream_dataset', type=str, default='FACED',
                         help='[FACED, SEED-V, PhysioNet-MI, SHU-MI, ISRUC, CHB-MIT, BCIC2020-3, Mumtaz2016, '
-                             'SEED-VIG, MentalArithmetic, TUEV, TUAB, BCIC-IV-2a, MODMA]')
+                             'SEED-VIG, MentalArithmetic, TUEV, TUAB, BCIC-IV-2a, MODMA, NCH]')
     parser.add_argument('--datasets_dir', type=str,
                         default='/data/datasets/BigDownstream/Faced/processed',
                         help='datasets_dir')
     parser.add_argument('--num_of_classes', type=int, default=9, help='number of classes')
     parser.add_argument('--model_dir', type=str, default='/data/wjq/models_weights/Big/BigFaced', help='model_dir')
+    parser.add_argument('--age_bin', type=str, default=None, help='NCH only: one of [1-2y, 3-5y, 6-12y, 13-18y, 19-100y]. ' 'Required when --downstream_dataset NCH.')
+
     """############ Downstream dataset settings ############"""
 
     parser.add_argument('--num_workers', type=int, default=16, help='num_workers')
@@ -89,6 +91,15 @@ def main():
         t.train_for_binaryclass()
     elif params.downstream_dataset == 'ISRUC':
         load_dataset = isruc_dataset.LoadDataset(params)
+        data_loader = load_dataset.get_data_loader()
+        model = model_for_isruc.Model(params)
+        t = Trainer(params, data_loader, model)
+        t.train_for_multiclass()
+    elif params.downstream_dataset == 'NCH':
+        assert params.age_bin is not None, (
+            "--age_bin is required for NCH, e.g. --age_bin 6-12y"
+        )
+        load_dataset = nch_dataset.LoadDataset(params)
         data_loader = load_dataset.get_data_loader()
         model = model_for_isruc.Model(params)
         t = Trainer(params, data_loader, model)

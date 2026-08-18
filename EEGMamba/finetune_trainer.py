@@ -19,7 +19,7 @@ class Trainer(object):
         self.test_eval = Evaluator(params, self.data_loader['test'])
 
         self.model = model.cuda()
-        if self.params.downstream_dataset in ['FACED', 'SEED-V', 'PhysioNet-MI', 'ISRUC', 'BCIC2020-3', 'TUEV', 'BCIC-IV-2a']:
+        if self.params.downstream_dataset in ['FACED', 'SEED-V', 'PhysioNet-MI', 'ISRUC', 'NCH', 'BCIC2020-3', 'TUEV', 'BCIC-IV-2a']:
             self.criterion = CrossEntropyLoss(label_smoothing=self.params.label_smoothing).cuda()
         elif self.params.downstream_dataset in ['SHU-MI', 'CHB-MIT', 'Mumtaz2016', 'MentalArithmetic', 'TUAB']:
             self.criterion = BCEWithLogitsLoss().cuda()
@@ -45,7 +45,7 @@ class Trainer(object):
             if self.params.multi_lr: # set different learning rates for different modules
                 self.optimizer = torch.optim.AdamW([
                     {'params': backbone_params, 'lr': self.params.lr},
-                    {'params': other_params, 'lr': self.params.lr * 5}
+                    {'params': other_params, 'lr': self.params.lr * 10}
                 ], weight_decay=self.params.weight_decay)
             else:
                 self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.params.lr,
@@ -80,7 +80,7 @@ class Trainer(object):
                 x = x.cuda()
                 y = y.cuda()
                 pred = self.model(x)
-                if self.params.downstream_dataset == 'ISRUC':
+                if self.params.downstream_dataset == ('ISRUC', 'NCH'):
                     # print(x)
                     loss = self.criterion(pred.transpose(1, 2), y)
                 else:
