@@ -39,8 +39,8 @@ SCALE_TO_MODEL_INPUT = 1e4
 # Bandpass + notch filter, applied ONCE per opened recording (see
 # CACHE-then-filter note below), matching ISRUC's preprocessing exactly.
 FILTER_LOWCUT_HZ = 0.3
-FILTER_HIGHCUT_HZ = 35.0
-NOTCH_FREQ_HZ = 50.0
+FILTER_HIGHCUT_HZ = 75.0
+NOTCH_FREQ_HZ = 60.0
 
 # Channel order — LOCKED to match model input convention
 CHANNELS_ORDERED = [
@@ -197,3 +197,5 @@ class NCHIndexDataset(Dataset):
             )
 
         return torch.from_numpy(x.copy()).float(), torch.from_numpy(y).long()
+
+from .nch_dataset_loader import LoadDataset

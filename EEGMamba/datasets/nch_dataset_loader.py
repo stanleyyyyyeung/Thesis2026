@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
-from nch_dataset import NCHIndexDataset
-from nch_sampler import RecordingGroupedBatchSampler
+from .nch_dataset import NCHIndexDataset
+from .nch_sampler import RecordingGroupedBatchSampler
 
 class LoadDataset(object):
     def __init__(self, params):
