@@ -125,7 +125,7 @@ class NCHIndexDataset(Dataset):
             self._raw_cache.move_to_end(edf_path)
             return self._raw_cache[edf_path]
 
-        raw = mne.io.read_raw_edf(edf_path, preload=True, verbose=False)
+        raw = mne.io.read_raw_edf(edf_path, preload=False, verbose=False)
 
         missing = [ch for ch in CHANNELS_ORDERED if ch not in raw.ch_names]
         if missing:
@@ -143,6 +143,7 @@ class NCHIndexDataset(Dataset):
                                                   # order isn't guaranteed
                                                   # identical across MNE
                                                   # versions, this is.
+        raw.load_data(verbose=False)
 
         if abs(raw.info["sfreq"] - TARGET_SFREQ) > 1e-6:
             raw.resample(TARGET_SFREQ, verbose=False)
