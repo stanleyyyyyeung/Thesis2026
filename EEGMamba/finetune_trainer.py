@@ -80,7 +80,7 @@ class Trainer(object):
                 x = x.cuda()
                 y = y.cuda()
                 pred = self.model(x)
-                if self.params.downstream_dataset == ('ISRUC', 'NCH'):
+                if self.params.downstream_dataset in ('ISRUC', 'NCH'):
                     # print(x)
                     loss = self.criterion(pred.transpose(1, 2), y)
                 else:
