@@ -3,15 +3,13 @@
 #PBS -l walltime=4:00:00
 #PBS -q eleceng
 #PBS -N EEGMamba_NCH_Extract
-#PBS -J 1-5
 
-# One array task per age bin. PBS_ARRAY_INDEX is 1-based.
-AGE_BINS=("1-2y" "3-5y" "6-12y" "13-18y" "19-100y")
-AGE_BIN="${AGE_BINS[$((PBS_ARRAY_INDEX - 1))]}"
+# Age Groups: 1-2y, 3-5y, 6-12y, 13-18y, 19-100y
+AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_test.sh}"
 
 INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.parquet"
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
-MODEL_DIR="/srv/scratch/z5423210/StanleyThesis2026/out_eegmamba/nch/${AGE_BIN}/out/model_weights"
+MODEL_DIR="$REPO_DIR/model_weights/NCH_${AGE_BIN}"
 
 # NOTE: no blanket `rm -f *.[oe]*` cleanup step here (unlike
 # run_thesis_prelim.sh) — 5 array tasks share this script, and a shared
@@ -22,9 +20,10 @@ MODEL_DIR="/srv/scratch/z5423210/StanleyThesis2026/out_eegmamba/nch/${AGE_BIN}/o
 
 cd "$REPO_DIR" || exit 1
 
-echo "Starting extraction for age bin: ${AGE_BIN} (array index ${PBS_ARRAY_INDEX})"
+echo "Starting extraction for age bin: ${AGE_BIN} (job ${PBS_JOBID})"
 
-python extract_predictions_nch.py \
+apptainer exec --nv -B /srv:/srv "$SIF" \
+    python test_nch.py \
     --age_bin "${AGE_BIN}" \
     --index_path "${INDEX_PATH}" \
     --model_dir "${MODEL_DIR}" \
