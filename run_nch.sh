@@ -1,18 +1,15 @@
 #!/bin/bash
-#PBS -l select=1:ncpus=8:ngpus=1:mem=32gb
-#PBS -l walltime=12:00:00
+#PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
+#PBS -l walltime=30:00:00
 #PBS -N NCH_EEGMamba_Finetune
-#PBS -J 1-5
 
 export APPTAINER_CACHEDIR=/srv/scratch/z5423210/.apptainer_cache
 export APPTAINER_TMPDIR=/srv/scratch/z5423210/.apptainer_tmp
 
-# --- 1. Age bin selection ---
-bins=("1-2y" "3-5y" "6-12y" "13-18y" "19-100y")
-i=${PBS_ARRAY_INDEX}
-bin=${bins[$((i-1))]}
+# --- 1. Age bin selection ("1-2y" "3-5y" "6-12y" "13-18y" "19-100y")---
+bin="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y NCH_EEGMamba_Finetune.sh}"
 echo "=========================================="
-echo "NCH EEGMamba finetuning — age bin: ${bin} (array index ${i})"
+echo "NCH EEGMamba finetuning — age bin: ${bin}"
 echo "=========================================="
 
 # --- 2. Paths ---
@@ -43,7 +40,9 @@ apptainer exec --nv -B /srv:/srv "$SIF" \
     --model_dir "$MODEL_DIR" \
     --cuda 0 \
     --epochs 50 \
-    --num_workers 8
+    --frozen False \
+    --freeze_epochs 5 \
+    --num_workers 4
 
 exit_code=$?
 echo ""
