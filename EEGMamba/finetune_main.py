@@ -51,12 +51,6 @@ def main():
                         help='multi_lr')  # set different learning rates for different modules
     parser.add_argument('--frozen', type=bool,
                         default=False, help='frozen')
-    parser.add_argument(
-        '--freeze_epochs',
-        type=int,
-        default=5,
-        help='number of initial epochs to freeze backbone'
-    ) # Parameter for fixing number of epochs to keep backbone frozen
     parser.add_argument('--use_pretrained_weights', type=bool,
                         default=True, help='use_pretrained_weights')
     parser.add_argument('--foundation_dir', type=str,

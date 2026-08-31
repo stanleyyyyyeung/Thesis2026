@@ -34,10 +34,11 @@ class Trainer(object):
             if "backbone" in name:
                 backbone_params.append(param)
 
-                if params.freeze_epochs > 0:
+                if params.frozen:
                     param.requires_grad = False
                 else:
                     param.requires_grad = True
+
             else:
                 other_params.append(param)
         if self.params.optimizer == 'AdamW':
@@ -71,11 +72,6 @@ class Trainer(object):
         acc_best = 0
         cm_best = None
         for epoch in range(self.params.epochs):
-            if epoch == self.params.freeze_epochs:
-                print("Unfreezing backbone...")
-                for name, param in self.model.named_parameters():
-                    if "backbone" in name:
-                        param.requires_grad = True
             self.model.train()
             start_time = timer()
             losses = []
