@@ -12,10 +12,15 @@ echo "=========================================="
 echo "NCH EEGMamba finetuning — age bin: ${bin}"
 echo "=========================================="
 
+# -- Learning rate for different modules --
+#   qsub -v bin=6-12y,seq_lr_mult=1.0 run_nch.sh
+seq_lr_mult="${seq_lr_mult:-2.0}"
+head_lr_mult="${head_lr_mult:-5.0}"
+
 # --- 2. Paths ---
 PROJECT_ROOT=/srv/scratch/z5423210/StanleyThesis2026
 EEGMAMBA_DIR=$PROJECT_ROOT/EEGMamba
-SIF=/srv/scratch/z5423210/tf22_py3.sif
+SIF=/srv/scratch/z5423210/pytorch_cu128.sif
 DATASETS_DIR=$PROJECT_ROOT/nch_index/nch_index_nch_v2.parquet
 MODEL_DIR="$PROJECT_ROOT/EEGMamba/model_weights/NCH_${bin}"
 
@@ -30,8 +35,11 @@ rm -f "$MODEL_DIR"/*.pth
 export APPTAINERENV_TRITON_LIBCUDA_PATH="/.singularity.d/libs"
 
 # --- 3. Run ---
-PYTHONPATH=$PYTHONPATH_FULL \
-apptainer exec --nv -B /srv:/srv "$SIF" \
+PYTHONPATH=/srv/scratch/z5423210/python_packages_py310:/srv/scratch/z5423210/python_packages \
+apptainer exec --nv \
+    --env TRITON_LIBCUDA_PATH="/usr/local/cuda/compat/lib" \
+    --env LD_LIBRARY_PATH="/usr/local/cuda/compat/lib:\$LD_LIBRARY_PATH" \
+    -B /srv:/srv "$SIF" \
     python3 finetune_main.py \
     --downstream_dataset NCH \
     --datasets_dir "$DATASETS_DIR" \
@@ -41,7 +49,8 @@ apptainer exec --nv -B /srv:/srv "$SIF" \
     --cuda 0 \
     --epochs 50 \
     --frozen False \
-    --freeze_epochs 5 \
+    --seq_lr_mult "$seq_lr_mult" \
+    --head_lr_mult "$head_lr_mult" \
     --num_workers 4
 
 exit_code=$?

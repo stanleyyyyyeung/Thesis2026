@@ -13,12 +13,15 @@ export APPTAINERENV_LD_LIBRARY_PATH="/usr/lib64:${LD_LIBRARY_PATH}"
 # --- 3. Paths ---
 PROJECT_ROOT=/srv/scratch/z5423210/StanleyThesis2026
 EEGMAMBA_DIR=$PROJECT_ROOT/EEGMamba
-SIF=/srv/scratch/z5423210/tf22_py3.sif
-PYTHONPATH_FULL=$EEGMAMBA_DIR:/srv/scratch/z5423210/python_packages
+SIF=/srv/scratch/z5423210/pytorch_cu128.sif
+
 cd "$EEGMAMBA_DIR"
 # --- 4. Run inference ---
-PYTHONPATH=$PYTHONPATH_FULL \
-apptainer exec --nv -B /srv:/srv "$SIF" \
+PYTHONPATH=/srv/scratch/z5423210/python_packages_py310:/srv/scratch/z5423210/python_packages \
+apptainer exec --nv \
+    --env TRITON_LIBCUDA_PATH="/usr/local/cuda/compat/lib" \
+    --env LD_LIBRARY_PATH="/usr/local/cuda/compat/lib:\$LD_LIBRARY_PATH" \
+    -B /srv:/srv "$SIF" \
     python3 test_isruc.py \
     --cuda 0 \
     --run_number "$RUN_NUMBER" \
