@@ -22,7 +22,7 @@
 AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_hmm_refine.sh}"
 INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.parquet"
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
-SIF="/srv/scratch/z5423210/tf22_py3.sif"
+SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
 PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}"
 
 cd "$REPO_DIR" || exit 1
