@@ -143,7 +143,8 @@ def train_hmm_mmi(obs_probs_list, train_ytrue_list, A_init, pi_init,
                     continue
 
                 A_log = A_raw - torch.logsumexp(A_raw, dim=1, keepdim=True)
-                A_prob = A_log.exp()
+                # A_prob = A_log.exp()    # Commented out as we need A to be in log space to pass to other functions
+                A_prob = A_log
 
                 T = len(label_chunk)
                 P = torch.tensor(np.log(obs_chunk + 1e-10), dtype=torch.float64).to(device)

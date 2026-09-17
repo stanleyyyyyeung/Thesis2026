@@ -260,13 +260,17 @@ def refine_age_bin(pred_dir, age_bin, mode, index_path, pi_source="uniform"):
     else:  # hmm_trained
         obs_probs_list, ytrue_list = load_nch_train_probs_and_gt(pred_dir, age_bin)
         verify_label_range(ytrue_list, context=f"{age_bin} train GT (from predictions)")
-        A, pi, alpha = train_hmm_mmi(obs_probs_list, ytrue_list, A_init, pi_init)
+        A, pi, alpha = train_hmm_mmi(obs_probs_list, ytrue_list, A_init, pi_init, alpha_init=alpha_init)
         print(f"\n{'='*70}\nNCH TRAINED HMM PRIOR -- {age_bin}\n{'='*70}")
         print(pd.DataFrame(np.round(A, 4),
                             index=[STAGE_NAMES[s] for s in STAGES],
                             columns=[STAGE_NAMES[s] for s in STAGES]))
         print(f"\nTrained alpha: {alpha:.4f}")
         print("=" * 70 + "\n")
+
+        trained_params_path = os.path.join(out_dir, f"hmm_trained_params_{age_bin}.npz")
+        np.savez(trained_params_path, A=A, pi=pi, alpha=alpha, pi_source=pi_source)
+        print(f"[{age_bin}] Saved trained HMM parameters to {trained_params_path}")
 
     log_A = np.log(A + 1e-300)
     log_pi = np.log(pi + 1e-300)
@@ -340,6 +344,14 @@ def main():
                               "'empirical' (pi from the first label of each training "
                               "sequence) is available for comparison but is NOT what the "
                               "paper does.")
+    parser.add_argument('--alpha_init', type=float, default=0.7,
+                         help="Warm-start value for alpha before MMI training "
+                              "(only used in --mode hmm_trained; previously "
+                              "hardcoded to 0.7 inside train_hmm_mmi). Pass the "
+                              "alpha selected by select_alpha_eval.py's eval-set "
+                              "sweep for this age bin, so MMI training starts from "
+                              "a value you've already validated rather than an "
+                              "arbitrary constant.")
     args = parser.parse_args()
 
     print(f"\n{'='*60}\n  Age bin: {args.age_bin} | Mode: {args.mode} | pred_dir: {args.pred_dir}\n{'='*60}\n")
