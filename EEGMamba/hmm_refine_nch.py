@@ -234,7 +234,7 @@ def load_nch_train_probs_and_gt(pred_dir, age_bin):
 # ============================================================
 # MAIN REFINEMENT LOOP
 # ============================================================
-def refine_age_bin(pred_dir, age_bin, mode, index_path, pi_source="uniform"):
+def refine_age_bin(pred_dir, age_bin, mode, index_path, pi_source="uniform", alpha_init=0.7):
     assert mode in ("hmm", "hmm_trained")
     assert pi_source in ("uniform", "empirical")
 
@@ -269,7 +269,7 @@ def refine_age_bin(pred_dir, age_bin, mode, index_path, pi_source="uniform"):
         print("=" * 70 + "\n")
 
         trained_params_path = os.path.join(out_dir, f"hmm_trained_params_{age_bin}.npz")
-        np.savez(trained_params_path, A=A, pi=pi, alpha=alpha, pi_source=pi_source)
+        np.savez(trained_params_path, A=A, pi=pi, alpha=alpha, pi_source=pi_source, alpha_init=alpha_init)
         print(f"[{age_bin}] Saved trained HMM parameters to {trained_params_path}")
 
     log_A = np.log(A + 1e-300)
@@ -355,7 +355,10 @@ def main():
     args = parser.parse_args()
 
     print(f"\n{'='*60}\n  Age bin: {args.age_bin} | Mode: {args.mode} | pred_dir: {args.pred_dir}\n{'='*60}\n")
-    refine_age_bin(args.pred_dir, args.age_bin, args.mode, args.index_path, args.pi_source)
+    if args.mode == "hmm_trained":
+        print(f"Initial alpha: {args.alpha_init}")   # add this line
+    print(f"{'='*60}\n")
+    refine_age_bin(args.pred_dir, args.age_bin, args.mode, args.index_path, args.pi_source, args.alpha_init)
 
 
 if __name__ == '__main__':

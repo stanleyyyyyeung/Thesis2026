@@ -114,7 +114,7 @@ def calc_MMI_loss(A, P, Pi, alpha, k_best, K, T, labels, device="cuda"):
     return best_paths[0], -(num - den)
 
 def train_hmm_mmi(obs_probs_list, train_ytrue_list, A_init, pi_init,
-                  k_best=20, n_epochs=10, lr=1e-5, device="cuda"):
+                  k_best=20, n_epochs=10, lr=1e-5, alpha_init=0.7, device="cuda"):
     """
     Train A and alpha jointly using MMI loss.
     obs_probs_list : list of (T_i, K) float arrays — aggregate_probs() output
