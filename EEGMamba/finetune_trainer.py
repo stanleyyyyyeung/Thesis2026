@@ -29,23 +29,26 @@ class Trainer(object):
         self.best_model_states = None
 
         backbone_params = []
-        other_params = []
+        sequence_encoder_params = []
+        head_params = []
         for name, param in self.model.named_parameters():
             if "backbone" in name:
                 backbone_params.append(param)
-
                 if params.frozen:
                     param.requires_grad = False
                 else:
                     param.requires_grad = True
-
+            elif "sequence_encoder" in name:
+                sequence_encoder_params.append(param)
             else:
-                other_params.append(param)
+                head_params.append(param)
+
         if self.params.optimizer == 'AdamW':
-            if self.params.multi_lr: # set different learning rates for different modules
+            if self.params.multi_lr:  # set different learning rates for different modules
                 self.optimizer = torch.optim.AdamW([
                     {'params': backbone_params, 'lr': self.params.lr},
-                    {'params': other_params, 'lr': self.params.lr * 5}
+                    {'params': sequence_encoder_params, 'lr': self.params.lr * self.params.seq_lr_mult},
+                    {'params': head_params, 'lr': self.params.lr * self.params.head_lr_mult}
                 ], weight_decay=self.params.weight_decay)
             else:
                 self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.params.lr,
@@ -54,7 +57,8 @@ class Trainer(object):
             if self.params.multi_lr:
                 self.optimizer = torch.optim.SGD([
                     {'params': backbone_params, 'lr': self.params.lr},
-                    {'params': other_params, 'lr': self.params.lr * 5}
+                    {'params': sequence_encoder_params, 'lr': self.params.lr * self.params.seq_lr_mult},
+                    {'params': head_params, 'lr': self.params.lr * self.params.head_lr_mult}
                 ],  momentum=0.9, weight_decay=self.params.weight_decay)
             else:
                 self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.params.lr, momentum=0.9,

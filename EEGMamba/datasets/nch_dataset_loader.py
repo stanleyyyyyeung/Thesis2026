@@ -5,14 +5,14 @@ from .nch_sampler import RecordingGroupedBatchSampler
 class LoadDataset(object):
     def __init__(self, params):
         self.params = params
-        # params.datasets_dir repurposed to hold the parquet path
         self.index_path = params.datasets_dir
-        self.age_bin = params.age_bin  # add this arg to argparse
+        self.age_bin = params.age_bin
+        self.seq_len = params.seq_len  # new: add --seq_len to train.py argparse
 
     def get_data_loader(self):
-        train_set = NCHIndexDataset(self.index_path, split='train', age_bin=self.age_bin)
-        val_set   = NCHIndexDataset(self.index_path, split='val',   age_bin=self.age_bin)
-        test_set  = NCHIndexDataset(self.index_path, split='test',  age_bin=self.age_bin)
+        train_set = NCHIndexDataset(self.index_path, seq_len=self.seq_len, split='train', age_bin=self.age_bin)
+        val_set   = NCHIndexDataset(self.index_path, seq_len=self.seq_len, split='val',   age_bin=self.age_bin)
+        test_set  = NCHIndexDataset(self.index_path, seq_len=self.seq_len, split='test',  age_bin=self.age_bin)
         print(len(train_set), len(val_set), len(test_set))
 
         train_sampler = RecordingGroupedBatchSampler(

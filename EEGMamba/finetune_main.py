@@ -13,6 +13,19 @@ from models import model_for_faced, model_for_seedv, model_for_physio, model_for
     model_for_bciciv2a, model_for_modma
 
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError(
+            f"Expected a boolean value (true/false), got {v!r}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description='Big model downstream')
     parser.add_argument('--seed', type=int, default=3407, help='random seed (default: 0)')
@@ -42,16 +55,31 @@ def main():
     parser.add_argument('--num_of_classes', type=int, default=9, help='number of classes')
     parser.add_argument('--model_dir', type=str, default='/data/wjq/models_weights/Big/BigFaced', help='model_dir')
     parser.add_argument('--age_bin', type=str, default=None, help='NCH only: one of [1-2y, 3-5y, 6-12y, 13-18y, 19-100y]. ' 'Required when --downstream_dataset NCH.')
+    parser.add_argument('--seq_len', type=int, default=20,
+                        help='NCH only: number of 30s epochs per window (context length). '
+                             'Must match the --seq-len the target parquet was built with '
+                             '(nch_index_..._seqlen{N}.parquet) — NCHIndexDataset asserts '
+                             'this against the parquet file metadata and will raise at '
+                             'construction time if they disagree.')
 
     """############ Downstream dataset settings ############"""
 
     parser.add_argument('--num_workers', type=int, default=16, help='num_workers')
     parser.add_argument('--label_smoothing', type=float, default=0.1, help='label_smoothing')
-    parser.add_argument('--multi_lr', type=bool, default=True,
+    parser.add_argument('--multi_lr', type=str2bool, default=True,
                         help='multi_lr')  # set different learning rates for different modules
-    parser.add_argument('--frozen', type=bool,
+    parser.add_argument('--head_lr_mult', type=float, default=5.0,
+                        help='LR multiplier (relative to --lr) for the classifier/head params '
+                             'when --multi_lr is set')
+    parser.add_argument('--seq_lr_mult', type=float, default=2.0,
+                        help='LR multiplier (relative to --lr) for sequence_encoder params '
+                             'when --multi_lr is set. Kept separate from --head_lr_mult since '
+                             'sequence_encoder is the module responsible for cross-epoch '
+                             'coherence and tends to need a more conservative LR than the '
+                             'classifier head to avoid converging to a per-epoch shortcut.')
+    parser.add_argument('--frozen', type=str2bool,
                         default=False, help='frozen')
-    parser.add_argument('--use_pretrained_weights', type=bool,
+    parser.add_argument('--use_pretrained_weights', type=str2bool,
                         default=True, help='use_pretrained_weights')
     parser.add_argument('--foundation_dir', type=str,
                         default='pretrained_weights/pretrained_EEGMamba.pth',
@@ -98,6 +126,10 @@ def main():
     elif params.downstream_dataset == 'NCH':
         assert params.age_bin is not None, (
             "--age_bin is required for NCH, e.g. --age_bin 6-12y"
+        )
+        assert params.seq_len is not None, (
+            "--seq_len is required for NCH, e.g. --seq_len 100 "
+            "(must match an existing nch_index_..._seqlen{N}.parquet)"
         )
         load_dataset = nch_dataset.LoadDataset(params)
         data_loader = load_dataset.get_data_loader()
