@@ -67,7 +67,8 @@ apptainer exec --nv \
     --frozen False \
     --seq_lr_mult "$seq_lr_mult" \
     --head_lr_mult "$head_lr_mult" \
-    --num_workers 4
+    --num_workers 4 \
+    --cuda 0
 
 exit_code=$?
 echo ""
