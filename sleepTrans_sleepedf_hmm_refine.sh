@@ -22,8 +22,11 @@ cd "$WORKDIR" || exit 1
  
 echo "Starting HMM refinement: dataset=${DATASET} mode=${MODE} fold=${FOLD} run=${RUN} (job ${PBS_JOBID})"
  
-PYTHONPATH=/srv/scratch/z5423210/python_packages:$REPO_DIR \
-apptainer exec -B /srv:/srv "$SIF" \
+PYTHONPATH=/srv/scratch/z5423210/python_packages_py310:/srv/scratch/z5423210/python_packages \
+apptainer exec --nv \
+    --env TRITON_LIBCUDA_PATH="/usr/local/cuda/compat/lib" \
+    --env LD_LIBRARY_PATH="/usr/local/cuda/compat/lib:\$LD_LIBRARY_PATH" \
+    -B /srv:/srv "$SIF" \
     python "$REPO_DIR/hmm_refine_sleepedf.py" \
     --dataset "${DATASET}" \
     --mode "${MODE}" \
