@@ -13,6 +13,8 @@
 # since this IS the primary predictions directory for this age bin.
 #
 AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_finetuned_test.sh}"
+seq_len="${seq_len:-20}"
+
 INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.parquet"
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
@@ -32,6 +34,7 @@ apptainer exec --nv \
     -B /srv:/srv "$SIF" \
     python test_nch.py \
     --age_bin "${AGE_BIN}" \
+    --seq_len "$seq_len" \
     --index_path "${INDEX_PATH}" \
     --model_dir "${MODEL_DIR}" \
     --pred_dir "${PRED_DIR}" \

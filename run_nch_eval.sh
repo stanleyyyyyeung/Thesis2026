@@ -22,7 +22,7 @@ INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.p
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
 MODEL_DIR="$REPO_DIR/model_weights/ISRUC_full"    # Need to change back to finetuned path (see git version, replace ISRUC_full with NCH_${AGE_BIN})
-PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}/inference_only"    # Need to change back to finetuned directory
+PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}/inference_only" # Running for inference only results so need to change back
 
 cd "$REPO_DIR" || exit 1
 
@@ -41,7 +41,7 @@ apptainer exec --nv \
     --index_path "${INDEX_PATH}" \
     --model_dir "${MODEL_DIR}" \
     --pred_dir "${PRED_DIR}" \
-    --split train \
+    --split val \
     --cuda 0
 STATUS=$?
 

@@ -1,13 +1,25 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
-#PBS -l walltime=30:00:00
+#PBS -l walltime=90:00:00
 #PBS -N NCH_EEGMamba_Finetune
 
 export APPTAINER_CACHEDIR=/srv/scratch/z5423210/.apptainer_cache
 export APPTAINER_TMPDIR=/srv/scratch/z5423210/.apptainer_tmp
 
 # --- 1. Age bin selection ("1-2y" "3-5y" "6-12y" "13-18y" "19-100y")---
-bin="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y NCH_EEGMamba_Finetune.sh}"
+bin="${bin:-}"; bins="${bins:-}"
+
+if [ -n "$bin" ] && [ -n "$bins" ]; then echo "ERROR: pass bin OR bins" >&2; exit 1; fi
+if [ -z "$bin" ] && [ -z "$bins" ]; then echo "ERROR: pass bin or bins" >&2; exit 1; fi
+
+if [ -n "$bins" ]; then
+    AGE_ARGS=(--age_bins "${bins//+/,}")
+    BIN_TAG="pooled-${bins//+/-}"        # e.g. pooled-6-12y-13-18y, pooled-all
+else
+    AGE_ARGS=(--age_bin "$bin")
+    BIN_TAG="$bin"
+fi
+
 seq_len="${seq_len:-20}"
 echo "=========================================="
 echo "NCH EEGMamba finetuning — age bin: ${bin}, seq_len: ${seq_len}"
@@ -37,7 +49,7 @@ fi
 
 echo "Using index: $DATASETS_DIR"
 
-MODEL_DIR="$PROJECT_ROOT/EEGMamba/model_weights/NCH_${bin}_seqlen${seq_len}"
+MODEL_DIR="$PROJECT_ROOT/EEGMamba/model_weights/NCH_${BIN_TAG}_seqlen${seq_len}"
 
 PYTHONPATH_FULL=$EEGMAMBA_DIR:/srv/scratch/z5423210/python_packages
 
@@ -67,7 +79,7 @@ apptainer exec --nv \
     --frozen False \
     --seq_lr_mult "$seq_lr_mult" \
     --head_lr_mult "$head_lr_mult" \
-    --num_workers 4 \
+    --num_workers 0 \
     --cuda 0
 
 exit_code=$?
