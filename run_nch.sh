@@ -70,11 +70,10 @@ apptainer exec --nv \
     python3 finetune_main.py \
     --downstream_dataset NCH \
     --datasets_dir "$DATASETS_DIR" \
-    --age_bin "$bin" \
+    --age_bin "${AGE_ARGS[@]}" \
     --seq_len "$seq_len" \
     --num_of_classes 5 \
     --model_dir "$MODEL_DIR" \
-    --cuda 0 \
     --epochs 50 \
     --frozen False \
     --seq_lr_mult "$seq_lr_mult" \
