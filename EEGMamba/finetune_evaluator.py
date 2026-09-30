@@ -10,28 +10,29 @@ class Evaluator:
         self.params = params
         self.data_loader = data_loader
 
-    def get_metrics_for_multiclass(self, model):
+    @torch.no_grad()
+    def predict(self, model):
+        """Returns y_true, y_pred as (N_windows, seq_len), in loader order."""
         model.eval()
-
-        truths = []
-        preds = []
+        ys, ps = [], []
         for x, y in tqdm(self.data_loader, mininterval=1):
-            x = x.cuda()
-            y = y.cuda()
+            pred_y = model(x.cuda()).argmax(-1).cpu().numpy()
+            L = y.shape[-1]
+            ps.append(pred_y.reshape(-1, L))
+            ys.append(y.numpy().reshape(-1, L))
+        return np.concatenate(ys), np.concatenate(ps)
 
-            pred = model(x)
-            pred_y = torch.max(pred, dim=-1)[1]
-
-            truths += y.cpu().squeeze().numpy().tolist()
-            preds += pred_y.cpu().squeeze().numpy().tolist()
-
-        truths = np.array(truths)
-        preds = np.array(preds)
+    @staticmethod
+    def metrics_from_arrays(truths, preds, n_classes=5):
         acc = balanced_accuracy_score(truths, preds)
         f1 = f1_score(truths, preds, average='weighted')
         kappa = cohen_kappa_score(truths, preds)
-        cm = confusion_matrix(truths, preds)
+        cm = confusion_matrix(truths, preds, labels=list(range(n_classes)))
         return acc, kappa, f1, cm
+
+    def get_metrics_for_multiclass(self, model):
+        y, p = self.predict(model)
+        return self.metrics_from_arrays(y.ravel(), p.ravel(), self.params.num_of_classes)
 
     def get_metrics_for_binaryclass(self, model):
         model.eval()

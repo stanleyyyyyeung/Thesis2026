@@ -54,7 +54,14 @@ def main():
                         help='datasets_dir')
     parser.add_argument('--num_of_classes', type=int, default=9, help='number of classes')
     parser.add_argument('--model_dir', type=str, default='/data/wjq/models_weights/Big/BigFaced', help='model_dir')
-    parser.add_argument('--age_bin', type=str, default=None, help='NCH only: one of [1-2y, 3-5y, 6-12y, 13-18y, 19-100y]. ' 'Required when --downstream_dataset NCH.')
+
+    # Mutually exclusive argument (age_bin or age_bins) to account for combining age groups
+    g = parser.add_mutually_exclusive_group()
+    g.add_argument('--age_bin', type=str, default=None,
+                   help='NCH only: single bin, e.g. 6-12y')
+    g.add_argument('--age_bins', type=str, default=None,
+                   help='NCH only: pooled bins, comma- or plus-separated, or "all"')
+
     parser.add_argument('--seq_len', type=int, default=20,
                         help='NCH only: number of 30s epochs per window (context length). '
                              'Must match the --seq-len the target parquet was built with '
@@ -124,9 +131,11 @@ def main():
         t = Trainer(params, data_loader, model)
         t.train_for_multiclass()
     elif params.downstream_dataset == 'NCH':
-        assert params.age_bin is not None, (
-            "--age_bin is required for NCH, e.g. --age_bin 6-12y"
-        )
+        if params.age_bins is not None:
+            params.age_bin = ("all" if params.age_bins == "all" else
+                              [b for b in params.age_bins.replace('+', ',').split(',') if b])
+        assert params.age_bin is not None, "Pass --age_bin or --age_bins for NCH"
+
         assert params.seq_len is not None, (
             "--seq_len is required for NCH, e.g. --seq_len 100 "
             "(must match an existing nch_index_..._seqlen{N}.parquet)"

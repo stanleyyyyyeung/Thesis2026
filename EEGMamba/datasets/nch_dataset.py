@@ -100,10 +100,15 @@ class NCHIndexDataset(Dataset):
 
         df = pd.read_parquet(index_parquet_path)
 
+        if age_bin is not None and age_bin != "all":
+            bins = [age_bin] if isinstance(age_bin, str) else list(age_bin)
+            unknown = set(bins) - set(df.age_bin.unique())
+            if unknown:
+                raise ValueError(f"Unknown age_bin(s) {sorted(unknown)}; "
+                                 f"index has {sorted(df.age_bin.unique())}")
+            df = df[df.age_bin.isin(bins)]
         if split is not None:
             df = df[df.split == split]
-        if age_bin is not None:
-            df = df[df.age_bin == age_bin]
         if exclude_epilepsy:
             df = df[~df.epilepsy_flag.astype(str).isin(["1", "True", "true"])]
 

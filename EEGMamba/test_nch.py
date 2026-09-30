@@ -68,10 +68,12 @@ def main():
     parser.add_argument('--checkpoint', type=str, default=None)
     parser.add_argument('--foundation_dir', type=str,
                          default='pretrained_weights/pretrained_EEGMamba.pth')
-    parser.add_argument('--split', type=str, default='test', choices=['train', 'eval', 'test'],
+    parser.add_argument('--split', type=str, default='test', choices=['train', 'val', 'test'],
                          help="Which split to run inference on. Defaults to 'test'. "
                               "Set to 'train' when generating scores for HMM MMI training "
                               "(hmm_trained refinement mode) — see hmm_refine_nch.py.")
+    parser.add_argument('--seq_len', type=int, default=20,
+                        help='Must match the index parquet AND the checkpoint the model was trained with.')
     args = parser.parse_args()
 
     model_dir = args.model_dir
@@ -100,7 +102,13 @@ def main():
     model.load_state_dict(state_dict)
     model.eval()
 
-    test_set = NCHIndexDataset(args.index_path, split=args.split, age_bin=args.age_bin)
+    test_set = NCHIndexDataset(args.index_path, seq_len=args.seq_len,
+                               split=args.split, age_bin=args.age_bin)
+
+    with open(os.path.join(out_dir, 'run_meta.json'), 'w') as f:
+        json.dump(dict(checkpoint=checkpoint_path, index=args.index_path,
+                       seq_len=args.seq_len, split=args.split,
+                       test_age_bin=args.age_bin, model_dir=model_dir), f, indent=2)
 
     # Sort so each recording's windows are visited consecutively and in
     # chronological (seq_start_sec) order. This is what keeps the dataset's
