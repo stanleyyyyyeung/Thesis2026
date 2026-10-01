@@ -44,7 +44,7 @@ ALPHA_VALUES = [0.0, 0.1, 0.2, 0.5, 0.7, 1.0, 2.0, 5.0]
 
 BASE = "/srv/scratch/z5423210/StanleyThesis2026"
 DEFAULT_TEST_INFERENCE_BASE = f"{BASE}/out_sleeptransformer/nch/run1"
-DEFAULT_TRAIN_INFERENCE_BASE = f"{BASE}/out_sleeptransformer/nch_inference_pretrained_train"
+DEFAULT_TRAIN_INFERENCE_BASE = f"{BASE}/out_sleeptransformer/nch/run1/training_scores"
 DEFAULT_LIST_DIR = "/srv/scratch/speechdata/sleep_data/NCH/sleeptransformer"
 DEFAULT_PRED_ROOT = f"{BASE}/out_sleeptransformer/nch/run1/predictions"
 
