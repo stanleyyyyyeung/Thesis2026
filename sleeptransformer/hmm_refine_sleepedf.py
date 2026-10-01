@@ -2,10 +2,6 @@
 hmm_refine_sleepedf.py (SleepTransformer) -- HMM/Viterbi refinement for
 SleepEDF-20 and SleepEDF-78, mirroring the EEGMamba hmm_refine_nch.py.
 
-One script for both datasets (--dataset sleepedf-20 | sleepedf-78). Each fold
-(n1, n2, ...) is a leave-subjects-out fold: its training-split GT gives A, and
-(hmm_trained only) its training-split SHHS/finetuned scores drive MMI training.
-
 Modes:
   hmm          A via pooled MLE from the fold's TRAIN-split GT. pi is FIXED
                UNIFORM by default (Neuro-Explicit DNN-HMM paper, Sec 2.2).
@@ -17,10 +13,6 @@ Modes:
 INDEXING: on disk (.mat labels, saved ytrue/ypred) = 1-indexed (W=1..REM=5).
 Internally (A, pi, Viterbi, MMI) = 0-indexed. Conversion happens only at
 load (label - 1) and save (path + 1).
-
-Relative paths inside the list files (e.g. ../../mat_30min/...) resolve
-against the CWD, exactly as in your previous scripts -- run from the same
-working directory you used before.
 
 Usage:
     python hmm_refine_sleepedf.py --dataset sleepedf-78 --mode hmm --fold n1
@@ -167,6 +159,18 @@ def load_list(list_path):
         return [line.strip().split('\t')[0] for line in f if line.strip()]
 
 
+def load_list_counts(list_path):
+    """[(path, n_epochs_declared_in_list_or_None)] in list order. The score tensor
+    was produced using THESE counts, so slicing must use them."""
+    out = []
+    with open(list_path, "r") as f:
+        for line in f:
+            if line.strip():
+                parts = line.strip().split('\t')
+                out.append((parts[0], int(parts[1]) if len(parts) > 1 else None))
+    return out
+
+
 def load_labels_raw(files):
     ys = []
     for fpath in files:
@@ -175,20 +179,36 @@ def load_labels_raw(files):
     return ys
 
 
-def scores_to_probs_list(mat_path, lengths):
+def scores_to_probs_list(mat_path, entries, label_lengths):
     """Split concatenated test_ret.mat scores into per-recording (n, K) probs.
-    Asserts the slices consume the whole tensor (catches list/inference mismatch)."""
+
+    Slices with the LIST-declared epoch counts (what inference used). If a
+    recording's list count != its actual label length (stale list vs regenerated
+    .mat), the scores cannot be aligned to labels: that recording yields None
+    and is skipped/reported, but sum_size still advances so later nights stay
+    aligned. The final assert then checks the tensor is fully consumed.
+    """
     mat = hdf5storage.loadmat(mat_path)
     score = np.transpose(mat['score'], (1, 0, 2))   # (SEQ_LEN, N_total, K)
 
-    probs_list, sum_size = [], 0
-    for n in lengths:
+    probs_list, sum_size, mismatched = [], 0, []
+    for (fpath, n_list), n_label in zip(entries, label_lengths):
+        n = n_list if n_list is not None else n_label
         valid_len = n - (SEQ_LEN - 1)
-        probs_list.append(aggregate_probs(score[:, sum_size:sum_size + valid_len, :]))
+        if n != n_label:
+            mismatched.append((os.path.basename(fpath), n, n_label))
+            probs_list.append(None)
+        else:
+            probs_list.append(aggregate_probs(score[:, sum_size:sum_size + valid_len, :]))
         sum_size += valid_len
+    if mismatched:
+        print(f"  WARNING: {len(mismatched)} recording(s) with list count != label length "
+              f"(skipped; regenerate lists + rerun inference to fix):")
+        for name, nl, nb in mismatched:
+            print(f"    {name}: list={nl}, label={nb}, diff={nl - nb}")
     assert sum_size == score.shape[1], (
         f"Score/list misalignment in {mat_path}: consumed {sum_size} positions, "
-        f"tensor has {score.shape[1]}. List order/contents differ from the inference run."
+        f"tensor has {score.shape[1]}. The inference run used a different list than this one."
     )
     return probs_list
 
@@ -204,6 +224,26 @@ def discover_folds(pred_base):
     return sorted(folds, key=lambda d: int(d[1:]))
 
 
+def resolve_alpha_init(args, fold, pred_dir):
+    """Warm-start alpha for MMI: manual override, else the eval-split selection JSON."""
+    if args.alpha_source == "manual":
+        if args.alpha_init is None:
+            raise ValueError("--alpha_source manual requires --alpha_init")
+        return args.alpha_init, "manual"
+
+    name = f"alpha_selection_{args.dataset}_{'global' if args.alpha_source == 'global' else fold}.json"
+    path = os.path.join(pred_dir, name)
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"{path} not found. Run select_alpha_eval.py first "
+            f"(--unit all for the global file), or pass --alpha_source manual --alpha_init X.")
+    with open(path) as f:
+        d = json.load(f)
+    alpha = float(d["selected_alpha"])
+    print(f"[{fold}] alpha_init={alpha} from {path} (selection_metric={d.get('selection_metric')})")
+    return alpha, d.get("selection_metric")
+
+
 # ============================================================
 # PER-FOLD REFINEMENT
 # ============================================================
@@ -216,7 +256,8 @@ def refine_fold(fold, args, paths):
     print(f"\n{'='*60}\n  {args.dataset} | fold {fold} | mode {args.mode}\n{'='*60}\n")
 
     # 1. Prior from this fold's TRAIN split
-    train_files = load_list(os.path.join(list_dir, f"train_list_n{fold_id}.txt"))
+    train_entries = load_list_counts(os.path.join(list_dir, f"train_list_n{fold_id}.txt"))
+    train_files = [p for p, _ in train_entries]
     train_raw = load_labels_raw(train_files)
     verify_raw_labels_one_indexed(train_raw, context=f"{fold} train GT")
     train_gt = [y - 1 for y in train_raw]
@@ -232,15 +273,22 @@ def refine_fold(fold, args, paths):
         train_score_path = os.path.join(paths["train_score_base"], fold, "test_ret.mat")
         if not os.path.exists(train_score_path):
             raise FileNotFoundError(f"No train-split scores at {train_score_path}; run the training-score inference first.")
-        obs_probs_list = scores_to_probs_list(train_score_path, [len(y) for y in train_gt])
-        A, pi, alpha = train_hmm_mmi(obs_probs_list, train_gt, A_init, pi_init, alpha_init=args.alpha_init)
+        all_probs = scores_to_probs_list(train_score_path, train_entries, [len(y) for y in train_gt])
+        keep = [i for i, p in enumerate(all_probs) if p is not None]
+        obs_probs_list = [all_probs[i] for i in keep]
+        mmi_gt = [train_gt[i] for i in keep]
+        print(f"[{fold}] MMI training on {len(keep)}/{len(all_probs)} train recordings")
+        alpha_init, alpha_sel_metric = resolve_alpha_init(args, fold, paths["pred_dir"])
+        A, pi, alpha = train_hmm_mmi(obs_probs_list, mmi_gt, A_init, pi_init, alpha_init=alpha_init)
         print(f"\n{'='*70}\nTRAINED HMM PRIOR -- {args.dataset} {fold}\n{'='*70}")
         print(pd.DataFrame(np.round(A, 4),
                            index=[STAGE_NAMES[s] for s in STAGES],
                            columns=[STAGE_NAMES[s] for s in STAGES]))
         print(f"\nTrained alpha: {alpha:.4f}\n{'='*70}\n")
         params_path = os.path.join(out_dir, f"hmm_trained_params_{fold}.npz")
-        np.savez(params_path, A=A, pi=pi, alpha=alpha, pi_source=args.pi_source, alpha_init=args.alpha_init)
+        np.savez(params_path, A=A, pi=pi, alpha=alpha, pi_source=args.pi_source,
+                 alpha_init=alpha_init, alpha_source=args.alpha_source,
+                 alpha_selection_metric=str(alpha_sel_metric))
         print(f"[{fold}] Saved trained HMM parameters to {params_path}")
 
     log_A = np.log(A + 1e-300)
@@ -248,13 +296,17 @@ def refine_fold(fold, args, paths):
 
     # 2. Refine every test recording of this fold
     test_score_path = os.path.join(paths["pred_base"], fold, "test_ret.mat")
-    test_files = load_list(os.path.join(list_dir, f"test_list_n{fold_id}.txt"))
+    test_entries = load_list_counts(os.path.join(list_dir, f"test_list_n{fold_id}.txt"))
+    test_files = [p for p, _ in test_entries]
     test_raw = load_labels_raw(test_files)
     verify_raw_labels_one_indexed(test_raw, context=f"{fold} test GT")
-    test_probs = scores_to_probs_list(test_score_path, [len(y) for y in test_raw])
+    test_probs = scores_to_probs_list(test_score_path, test_entries, [len(y) for y in test_raw])
 
     for fpath, y_raw, obs_probs in zip(test_files, test_raw, test_probs):
         rec_id = rec_id_from_path(fpath)
+        if obs_probs is None:
+            print(f"  {rec_id} -- SKIPPED (list/label length mismatch)")
+            continue
         y_true0 = y_raw - 1
         y_pred_raw0 = np.argmax(obs_probs, axis=-1)
 
@@ -301,8 +353,8 @@ def main():
                         help="Fold name like n1, or 'all' to loop every fold with a test_ret.mat")
     parser.add_argument('--pi_source', default='uniform', choices=['uniform', 'empirical'],
                         help="'uniform' (default) matches the paper; 'empirical' for comparison only.")
-    parser.add_argument('--alpha_init', type=float, default=0.7,
-                        help='Warm-start alpha for MMI (hmm_trained only). Use the eval-sweep alpha.')
+    parser.add_argument('--alpha_source', default='global', choices=['global', 'fold', 'manual'])
+    parser.add_argument('--alpha_init', type=float, default=None)
     args = parser.parse_args()
 
     run_root = f"{BASE}/out_sleeptransformer/{args.dataset}/run{args.run}"
@@ -317,8 +369,7 @@ def main():
     folds = discover_folds(paths["pred_base"]) if args.fold == 'all' else [args.fold]
     if not folds:
         raise FileNotFoundError(f"No folds with test_ret.mat under {paths['pred_base']}")
-    if args.mode == "hmm_trained":
-        print(f"Initial alpha: {args.alpha_init}")
+
     print(f"Dataset={args.dataset} run={args.run} mode={args.mode} folds={folds}")
 
     for fold in folds:

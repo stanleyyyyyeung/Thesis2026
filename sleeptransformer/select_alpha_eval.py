@@ -20,7 +20,7 @@ from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score
 from hmm_refine_sleepedf import (
     ALPHA_VALUES, BASE, K, LIST_DIRS, STAGES,
     discover_folds, estimate_hmm_parameters_from_gt, get_uniform_pi,
-    load_labels_raw, load_list, scores_to_probs_list,
+    load_labels_raw, load_list, load_list_counts, scores_to_probs_list,
     verify_label_range, verify_raw_labels_one_indexed, viterbi_hmm_softmax,
 )
 from hmm_refine_nch import AGE_BINS as NCH_AGE_BINS
@@ -142,13 +142,16 @@ def sweep_unit(args, unit, cfg):
     log_A, log_pi = np.log(A + 1e-300), np.log(get_uniform_pi() + 1e-300)
 
     # Eval-split probs + labels
-    eval_files = load_list(cfg["eval_list"])
-    eval_raw = load_labels_raw(eval_files)
+    eval_entries = load_list_counts(cfg["eval_list"])
+    eval_raw = load_labels_raw([p for p, _ in eval_entries])
     verify_raw_labels_one_indexed(eval_raw, context=f"{unit} eval GT")
     eval_gt = [y - 1 for y in eval_raw]
     verify_label_range(eval_gt, context=f"{unit} eval GT")
-    obs_probs_list = scores_to_probs_list(cfg["eval_scores"], [len(y) for y in eval_gt])
-    print(f"[{unit}] {len(eval_gt)} eval recordings from {cfg['eval_scores']}")
+    all_probs = scores_to_probs_list(cfg["eval_scores"], eval_entries, [len(y) for y in eval_gt])
+    keep = [i for i, p in enumerate(all_probs) if p is not None]
+    obs_probs_list = [all_probs[i] for i in keep]
+    eval_gt = [eval_gt[i] for i in keep]
+    print(f"[{unit}] {len(keep)}/{len(all_probs)} eval recordings usable")
 
     per_rec = {a: dict(acc=[], kappa=[], mf1=[], jsd=[]) for a in ALPHA_VALUES}
     for a in ALPHA_VALUES:
