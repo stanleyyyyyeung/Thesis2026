@@ -5,6 +5,9 @@
 #PBS -N SleepTransformer_NCH_HMM_Refine
 
 AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_hmm_refine.sh}"
+MODE="${mode:-hmm}"
+ALPHA_SOURCE="${alpha_source:-bin}"
+
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
 TEST_INFERENCE_DIR="/srv/scratch/z5423210/StanleyThesis2026/out_sleeptransformer/nch/run1"
@@ -23,10 +26,11 @@ apptainer exec --nv \
     -B /srv:/srv "$SIF" \
     python hmm_refine_nch.py \
     --age_bin "${AGE_BIN}" \
-    --mode hmm \
+    --mode "${MODE}" \
     --pi_source uniform \
     --pred_dir "${PRED_DIR}" \
     --test_inference_dir "${TEST_INFERENCE_DIR}" \
+    --alpha_source "${ALPHA_SOURCE}" \
     --list_dir "${LIST_DIR}"
 STATUS=$?
  
