@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=8:ngpus=1:mem=46gb
-#PBS -l walltime=02:00:00
+#PBS -l walltime=04:00:00
 #PBS -q eleceng
 #PBS -N ST_SleepEDF_HMM_Refine
 
@@ -8,7 +8,7 @@ DATASET="${dataset:?Must pass dataset, e.g. qsub -v dataset=sleepedf-78 run_slee
 MODE="${mode:-hmm}"
 FOLD="${fold:-all}"
 RUN="${run:-1}"
-ALPHA_INIT="${alpha_init:-0.7}"
+ALPHA_SOURCE="${alpha_source:-fold}"
  
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/sleeptransformer"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
@@ -33,7 +33,7 @@ apptainer exec --nv \
     --fold "${FOLD}" \
     --run "${RUN}" \
     --pi_source uniform \
-    --alpha_init "${ALPHA_INIT}"
+    --alpha_source "${ALPHA_SOURCE}" 
 STATUS=$?
  
 echo "Finished HMM refinement: ${DATASET}/${MODE}/${FOLD}, exit code ${STATUS}"
