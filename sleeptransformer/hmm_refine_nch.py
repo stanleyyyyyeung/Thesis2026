@@ -209,6 +209,28 @@ def rec_id_from_path(fpath):
     parts = os.path.basename(fpath).replace("_eeg.mat", "").split("_")
     return f"{parts[0]}_night{parts[1]}"
 
+def resolve_alpha_init(args, age_bin):
+    """Warm-start alpha for MMI: manual override, else the eval-split selection JSON."""
+    if args.alpha_source == "manual":
+        if args.alpha_init is None:
+            raise ValueError("--alpha_source manual requires --alpha_init")
+        return args.alpha_init, "manual"
+
+    path = os.path.join(args.pred_dir, f"alpha_selection_nch_{age_bin}.json")
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"{path} not found. Run `select_alpha_eval.py --dataset nch --unit {age_bin}` first, "
+            f"or pass --alpha_source manual --alpha_init X.")
+    with open(path) as f:
+        d = json.load(f)
+    alpha = float(d["selected_alpha"])
+    metric = d.get("selection_metric")
+    print(f"[{age_bin}] alpha_init={alpha} from {path} (selection_metric={metric})")
+    if alpha < 0.1:
+        print(f"[{age_bin}] WARNING: selected alpha={alpha} switches the transition prior off; "
+              f"clamping warm start to 0.1")
+        alpha = 0.1
+    return alpha, metric
 
 # ============================================================
 # MAIN REFINEMENT
@@ -242,6 +264,7 @@ def refine_age_bin(args):
                 f"inference job first."
             )
         obs_probs_list = scores_to_probs_list(train_score_path, [len(y) for y in train_gt])
+        alpha_init, alpha_sel_metric = resolve_alpha_init(args, age_bin)
         A, pi, alpha = train_hmm_mmi(obs_probs_list, train_gt, A_init, pi_init,
                                      alpha_init=args.alpha_init)
         print(f"\n{'='*70}\nNCH TRAINED HMM PRIOR -- {age_bin}\n{'='*70}")
@@ -250,8 +273,9 @@ def refine_age_bin(args):
                            columns=[STAGE_NAMES[s] for s in STAGES]))
         print(f"\nTrained alpha: {alpha:.4f}\n{'='*70}\n")
         params_path = os.path.join(out_dir, f"hmm_trained_params_{age_bin}.npz")
-        np.savez(params_path, A=A, pi=pi, alpha=alpha,
-                 pi_source=args.pi_source, alpha_init=args.alpha_init)
+        np.savez(params_path, A=A, pi=pi, alpha=alpha, pi_source=args.pi_source,
+                 alpha_init=alpha_init, alpha_source=args.alpha_source,
+                 alpha_selection_metric=str(alpha_sel_metric))
         print(f"[{age_bin}] Saved trained HMM parameters to {params_path}")
 
     log_A = np.log(A + 1e-300)
@@ -328,9 +352,11 @@ def main():
     parser.add_argument('--pi_source', type=str, default='uniform', choices=['uniform', 'empirical'],
                         help="'uniform' (default) matches the Neuro-Explicit DNN-HMM paper; "
                              "'empirical' is for comparison only.")
-    parser.add_argument('--alpha_init', type=float, default=0.7,
-                        help='Warm-start alpha for MMI training (hmm_trained only). Pass the '
-                             'alpha selected by the eval-set sweep for this age bin.')
+    parser.add_argument('--alpha_source', default='bin', choices=['bin', 'manual'],
+                        help="'bin': read the age bin's eval-selected alpha from its JSON; "
+                             "'manual': use --alpha_init")
+    parser.add_argument('--alpha_init', type=float, default=None,
+                        help="Only used with --alpha_source manual")
     args = parser.parse_args()
     if args.pred_dir is None:
         args.pred_dir = os.path.join(DEFAULT_PRED_ROOT, args.age_bin)
