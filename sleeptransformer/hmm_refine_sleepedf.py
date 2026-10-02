@@ -25,6 +25,7 @@ import hdf5storage
 import numpy as np
 import pandas as pd
 from scipy.stats import entropy
+import json
 
 from kNearestViterbi import train_hmm_mmi
 
