@@ -244,7 +244,7 @@ def resolve_alpha_init(args, fold, pred_dir):
     print(f"[{fold}] alpha_init={alpha} from {path} (selection_metric={d.get('selection_metric')})")
 
     if alpha < 0.1:
-        print(f"[{age_bin}] WARNING: selected alpha={alpha} switches the transition prior off; "
+        print(f"WARNING: selected alpha={alpha} switches the transition prior off; "
               f"clamping warm start to 0.1")
         alpha = 0.1
 
