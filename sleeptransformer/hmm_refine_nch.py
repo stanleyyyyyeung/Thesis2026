@@ -34,7 +34,7 @@ from kNearestViterbi import train_hmm_mmi
 # ============================================================
 # CONFIGURATION
 # ============================================================
-AGE_BINS = ["1-2y", "3-5y", "6-12y", "13-18y"]
+AGE_BINS = ["1-2y", "3-5y", "6-12y", "13-18y", "19-100y"]
 
 STAGES = [0, 1, 2, 3, 4]   # internal 0-indexed: W, N1, N2, N3, REM
 STAGE_NAMES = {0: "W", 1: "N1", 2: "N2", 3: "N3", 4: "REM"}
