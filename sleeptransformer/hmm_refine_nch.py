@@ -267,7 +267,7 @@ def refine_age_bin(args):
         obs_probs_list = scores_to_probs_list(train_score_path, [len(y) for y in train_gt])
         alpha_init, alpha_sel_metric = resolve_alpha_init(args, age_bin)
         A, pi, alpha = train_hmm_mmi(obs_probs_list, train_gt, A_init, pi_init,
-                                     alpha_init=args.alpha_init)
+                                     alpha_init=alpha_init)
         print(f"\n{'='*70}\nNCH TRAINED HMM PRIOR -- {age_bin}\n{'='*70}")
         print(pd.DataFrame(np.round(A, 4),
                            index=[STAGE_NAMES[s] for s in STAGES],
