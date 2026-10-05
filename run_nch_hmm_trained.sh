@@ -1,5 +1,5 @@
 #!/bin/bash
-#PBS -l select=1:ncpus=8:mem=32gb
+#PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
 #PBS -l walltime=6:00:00
 #PBS -q eleceng
 #PBS -N EEGMamba_NCH_HMM_Trained
@@ -19,13 +19,23 @@
 # Requires run_nch_finetuned_test.sh to have already been run for this age
 # bin (predictions/NCH_<bin>/{rec_id}_probs.npy must exist).
 #
-AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_hmm_refine.sh}"
-INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.parquet"
+
+AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_select_alpha.sh}"
+seq_len="${seq_len:-20}"
+
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
-PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}"  # Changed to do inference only
 
-ALPHA_JSON="${PRED_DIR}/alpha_selection_${AGE_BIN}.json"
+if [ "$seq_len" -eq 20 ]; then
+    SUFFIX=""
+else
+    SUFFIX="_seqlen${seq_len}"
+fi
+
+INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2${SUFFIX}.parquet"
+PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
+
+ALPHA_JSON="${PRED_DIR}/alpha_selection_${AGE_BIN}${SUFFIX}.json"
 ALPHA_INIT=$(python3 -c "import json; print(json.load(open('${ALPHA_JSON}'))['selected_alpha'])")
 echo "Warm-starting hmm_trained with alpha_init=${ALPHA_INIT} (from ${ALPHA_JSON})"
 
@@ -42,6 +52,7 @@ apptainer exec --nv \
     python hmm_refine_nch.py \
     --age_bin "${AGE_BIN}" \
     --mode hmm_trained \
+    --seq_len "$seq_len" \
     --pi_source uniform \
     --pred_dir "${PRED_DIR}" \
     --index_path "${INDEX_PATH}" \

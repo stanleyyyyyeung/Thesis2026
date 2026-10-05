@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=8:mem=32gb
-#PBS -l walltime=1:00:00
+#PBS -l walltime=5:00:00
 #PBS -q eleceng
 #PBS -N EEGMamba_NCH_HMM_Refine
 #
@@ -19,11 +19,22 @@
 # Requires run_nch_finetuned_test.sh to have already been run for this age
 # bin (predictions/NCH_<bin>/{rec_id}_probs.npy must exist).
 #
-AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_hmm_refine.sh}"
-INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.parquet"
+
+AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_eval_hmm_trained.sh}"
+seq_len="${seq_len:-20}"
+pi_source="${pi_source:-uniform}"
+
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
-PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}"
+
+if [ "$seq_len" -eq 20 ]; then
+    SUFFIX=""
+else
+    SUFFIX="_seqlen${seq_len}"
+fi
+
+INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2${SUFFIX}.parquet"
+PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
 
 cd "$REPO_DIR" || exit 1
 
@@ -37,6 +48,7 @@ apptainer exec --nv \
     -B /srv:/srv "$SIF" \
     python hmm_refine_nch.py \
     --age_bin "${AGE_BIN}" \
+    --seq_len "$seq_len" \
     --mode hmm \
     --pi_source uniform \
     --pred_dir "${PRED_DIR}" \
