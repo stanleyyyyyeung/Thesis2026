@@ -5,6 +5,7 @@ Usage (run locally, after the eval job above has completed and synced down):
     python select_alpha_eval.py --age_bin 6-12y \
         --pred_dir /path/to/EEGMamba/predictions/NCH_6-12y \
         --index_path /path/to/nch_index.parquet \
+        -- seq_len 40 \
         --selection_metric jsd
 """
 import argparse
@@ -25,7 +26,7 @@ from hmm_refine_nch import (
     load_nch_train_sequences, verify_label_range, viterbi_hmm_softmax,
 )
 
-EVAL_SPLIT_NAME = "eval"  # change to "val" if that's what NCHIndexDataset calls it
+EVAL_SPLIT_NAME = "eval"
 
 
 # ============================================================
@@ -81,6 +82,48 @@ def per_stage_jsd(y_true, y_pred):
     return out
 
 
+def evaluate_hmm_trained(pred_dir, age_bin):
+    params_path = os.path.join(pred_dir, "hmmRefined", f"hmm_trained_params_{age_bin}.npz")
+    if not os.path.exists(params_path):
+        raise FileNotFoundError(
+            f"No trained HMM parameters at {params_path}.\n"
+            f"Run: python hmm_refine_nch.py --age_bin {age_bin} --mode hmm_trained "
+            f"--pred_dir {pred_dir} --index_path <index.parquet>  first."
+        )
+    saved = np.load(params_path)
+    A, pi, alpha = saved["A"], saved["pi"], float(saved["alpha"])
+    print(f"[{age_bin}] Loaded trained HMM params from {params_path} (alpha={alpha:.4f})")
+    log_A, log_pi = np.log(A + 1e-300), np.log(pi + 1e-300)
+
+    obs_probs_list, y_true_list, rec_ids = load_eval_probs_and_gt(pred_dir, age_bin)
+    verify_label_range(y_true_list, context=f"{age_bin} eval GT (hmm_trained check)")
+
+    accs, kappas, mf1s, jsds = [], [], [], []
+    for obs_probs, y_true in zip(obs_probs_list, y_true_list):
+        y_pred = viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha=alpha)
+        accs.append(accuracy_score(y_true, y_pred))
+        kappas.append(cohen_kappa_score(y_true, y_pred))
+        mf1s.append(f1_score(y_true, y_pred, average="macro", labels=STAGES, zero_division=0))
+        jsds.append(np.nanmean(per_stage_jsd(y_true, y_pred)))
+
+    print(f"\n{'='*80}\nHMM_TRAINED eval-split check -- {age_bin} ({len(rec_ids)} recordings)\n{'='*80}")
+    print(f"  Accuracy : {np.mean(accs)*100:.2f} ± {np.std(accs)*100:.2f} %")
+    print(f"  Kappa    : {np.mean(kappas):.3f} ± {np.std(kappas):.3f}")
+    print(f"  Macro F1 : {np.mean(mf1s)*100:.2f} ± {np.std(mf1s)*100:.2f} %")
+    print(f"  JSD      : {np.nanmean(jsds):.4f} ± {np.nanstd(jsds):.4f}  (lower=better)")
+    print("=" * 80)
+
+    out_path = os.path.join(pred_dir, f"hmm_trained_eval_check_{age_bin}.json")
+    with open(out_path, "w") as f:
+        json.dump(dict(age_bin=age_bin, split=EVAL_SPLIT_NAME, mode="hmm_trained",
+                        alpha=alpha,
+                        acc_mean=float(np.mean(accs)), acc_std=float(np.std(accs)),
+                        kappa_mean=float(np.mean(kappas)), kappa_std=float(np.std(kappas)),
+                        mf1_mean=float(np.mean(mf1s)), mf1_std=float(np.std(mf1s)),
+                        jsd_mean=float(np.nanmean(jsds)), jsd_std=float(np.nanstd(jsds))),
+                  f, indent=2)
+    print(f"Saved to {out_path}")
+
 # ============================================================
 # MAIN SWEEP
 # ============================================================
@@ -89,6 +132,11 @@ def main():
     ap.add_argument("--age_bin", required=True, choices=AGE_BINS)
     ap.add_argument("--pred_dir", required=True)
     ap.add_argument("--index_path", required=True)
+    ap.add_argument("--seq_len", type=int, default=20,
+                     help="Must match the index parquet this --index_path points to, "
+                          "and the seq_len the eval-split predictions in --pred_dir/"
+                          "eval_scores were generated at (i.e. whatever --seq_len was "
+                          "passed to test_nch.py --split eval).")
     ap.add_argument("--selection_metric", default="jsd",
                      choices=["jsd", "accuracy", "kappa", "macro_f1"],
                      help="Criterion for picking the 'best' alpha. Default 'jsd' "
@@ -97,13 +145,33 @@ def main():
                           "the paper's accuracy-based Table 1 selection. Pass "
                           "'accuracy' if you want the paper-faithful comparison "
                           "point instead -- ideally report both.")
+    ap.add_argument("--pi_source", type=str, default="uniform",
+                     choices=["uniform", "empirical"],
+                     help="Must match the --pi_source passed to hmm_refine_nch.py "
+                          "when it generated this age bin's hmmRefined/ files. Keep "
+                          "this in sync via the shell script that calls both, not by "
+                          "hand.")
+    ap.add_argument("--mode", default="hmm", choices=["hmm", "hmm_trained"],
+                     help="'hmm' (default): sweep ALPHA_VALUES with the empirical "
+                          "train-MLE A on eval, as before. 'hmm_trained': load the "
+                          "already-trained (A, pi, alpha) from hmm_refine_nch.py's "
+                          "hmm_trained run and report ITS eval-split performance -- "
+                          "MMI-trained (A, alpha) is fit directly on train-split "
+                          "data and has more overfitting room than picking 1-of-8 "
+                          "alpha values, so it needs the same eval check the plain "
+                          "sweep gets.")
     args = ap.parse_args()
+
+    if args.mode == "hmm_trained":
+        evaluate_hmm_trained(args.pred_dir, args.age_bin)
+        return
 
     # --- A from train split (unchanged from hmm_refine_nch.py) ---
     train_gt = load_nch_train_sequences(args.index_path, args.age_bin)
     verify_label_range(train_gt, context=f"{args.age_bin} train GT")
-    A, _ = estimate_hmm_parameters_from_gt(train_gt, label=f"NCH {args.age_bin} (train)")
-    pi = get_uniform_pi()
+    A, pi_empirical = estimate_hmm_parameters_from_gt(train_gt, label=f"NCH {args.age_bin} (train)")
+    pi = get_uniform_pi() if args.pi_source == "uniform" else pi_empirical
+    print(f"[{args.age_bin}] pi_source={args.pi_source} -> pi={np.round(pi, 4)}")
     log_A, log_pi = np.log(A + 1e-300), np.log(pi + 1e-300)
 
     # --- eval-split probs/labels ---

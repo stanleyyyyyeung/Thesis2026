@@ -155,7 +155,7 @@ def viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha):
 # ============================================================
 # LOADING GROUND TRUTH FOR THE TRAINING SPLIT
 # ============================================================
-def load_nch_train_sequences(index_path, age_bin):
+def load_nch_train_sequences(index_path, age_bin, seq_len=20):
     """
     Reconstruct per-recording, chronologically-ordered label sequences for
     the NCH training split, for empirical transition-matrix estimation.
@@ -175,7 +175,7 @@ def load_nch_train_sequences(index_path, age_bin):
                                                         # it that way so it
                                                         # can run on a
                                                         # CPU-only node
-    train_set = NCHIndexDataset(index_path, split='train', age_bin=age_bin)
+    train_set = NCHIndexDataset(index_path, split='train', age_bin=age_bin, seq_len=seq_len)
     sorted_df = train_set.df.sort_values(['edf_path', 'seq_start_sec'])
     recordings = sorted_df.groupby('edf_path', sort=False).groups
 
@@ -190,7 +190,6 @@ def load_nch_train_sequences(index_path, age_bin):
     print(f"[{age_bin}] Loaded {len(y_true_list)} training recordings "
           f"({sum(len(y) for y in y_true_list)} total epochs) for GT transition estimation.")
     return y_true_list
-
 
 # ============================================================
 # LOADING TRAIN-SPLIT MODEL SCORES (only needed for hmm_trained)
@@ -234,7 +233,7 @@ def load_nch_train_probs_and_gt(pred_dir, age_bin):
 # ============================================================
 # MAIN REFINEMENT LOOP
 # ============================================================
-def refine_age_bin(pred_dir, age_bin, mode, index_path, pi_source="uniform", alpha_init=0.7):
+def refine_age_bin(pred_dir, age_bin, mode, index_path, seq_len=20, pi_source="uniform", alpha_init=0.7):
     assert mode in ("hmm", "hmm_trained")
     assert pi_source in ("uniform", "empirical")
 
@@ -247,7 +246,7 @@ def refine_age_bin(pred_dir, age_bin, mode, index_path, pi_source="uniform", alp
     # --------------------------------------------------------
     # 1. Estimate (or train) the transition prior from NCH train split
     # --------------------------------------------------------
-    train_gt = load_nch_train_sequences(index_path, age_bin)
+    train_gt = load_nch_train_sequences(index_path, age_bin, seq_len=seq_len)
     verify_label_range(train_gt, context=f"{age_bin} train GT")
     A_init, pi_empirical = estimate_hmm_parameters_from_gt(
         train_gt, label=f"NCH {age_bin} (train split)"
@@ -336,6 +335,10 @@ def main():
     parser.add_argument('--index_path', type=str, required=True,
                          help='Path to the parquet produced by build_nch_index.py '
                               '(needed to reconstruct train-split GT sequences)')
+    parser.add_argument('--seq_len', type=int, default=20,
+                         help='Must match the index parquet given by --index_path, '
+                              'and the seq_len that --pred_dir\'s predictions (test, '
+                              'and for hmm_trained, training_scores) were generated at.')
     parser.add_argument('--pi_source', type=str, default='uniform',
                          choices=['uniform', 'empirical'],
                          help="Initial-state distribution. 'uniform' (default) matches "
@@ -354,11 +357,13 @@ def main():
                               "arbitrary constant.")
     args = parser.parse_args()
 
-    print(f"\n{'='*60}\n  Age bin: {args.age_bin} | Mode: {args.mode} | pred_dir: {args.pred_dir}\n{'='*60}\n")
+    print(f"\n{'='*60}\n  Age bin: {args.age_bin} | Mode: {args.mode} | seq_len: {args.seq_len} "
+          f"| pred_dir: {args.pred_dir}\n{'='*60}\n")
     if args.mode == "hmm_trained":
         print(f"Initial alpha: {args.alpha_init}")   # add this line
     print(f"{'='*60}\n")
-    refine_age_bin(args.pred_dir, args.age_bin, args.mode, args.index_path, args.pi_source, args.alpha_init)
+    refine_age_bin(args.pred_dir, args.age_bin, args.mode, args.index_path,
+                    seq_len=args.seq_len, pi_source=args.pi_source, alpha_init=args.alpha_init)
 
 
 if __name__ == '__main__':
