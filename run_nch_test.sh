@@ -12,18 +12,27 @@
 # instead of the ISRUC-pretrained one, and with no inference_only subdir
 # since this IS the primary predictions directory for this age bin.
 #
+
 AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_finetuned_test.sh}"
 seq_len="${seq_len:-20}"
 
-INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.parquet"
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
-MODEL_DIR="$REPO_DIR/model_weights/NCH_${AGE_BIN}"
-PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}"
+
+if [ "$seq_len" -eq 20 ]; then
+    SUFFIX=""
+else
+    SUFFIX="_seqlen${seq_len}"
+fi
+
+INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2${SUFFIX}.parquet"
+MODEL_DIR="$REPO_DIR/model_weights/NCH_${AGE_BIN}${SUFFIX}"
+PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
 
 cd "$REPO_DIR" || exit 1
 
-echo "Starting FINETUNED test-split extraction for age bin: ${AGE_BIN} (job ${PBS_JOBID})"
+echo "Starting FINETUNED test-split extraction for age bin: ${AGE_BIN}, seq_len=${seq_len} (job ${PBS_JOBID})"
+echo "  index_path=${INDEX_PATH}"
 echo "  model_dir=${MODEL_DIR}"
 echo "  pred_dir=${PRED_DIR}"
 
@@ -42,8 +51,8 @@ apptainer exec --nv \
     --cuda 0
 STATUS=$?
 
-echo "Finished FINETUNED test-split extraction: ${AGE_BIN}, exit code ${STATUS}"
+echo "Finished FINETUNED test-split extraction: ${AGE_BIN}, seq_len=${seq_len}, exit code ${STATUS}"
 if [ "$STATUS" -ne 0 ]; then
-    echo "ERROR: finetuned test-split extraction failed for age bin ${AGE_BIN} (exit ${STATUS})" >&2
+    echo "ERROR: finetuned test-split extraction failed for age bin ${AGE_BIN}, seq_len=${seq_len} (exit ${STATUS})" >&2
     exit "$STATUS"
 fi

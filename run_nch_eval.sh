@@ -15,14 +15,22 @@
 # (see katana_command_reference.md's note on n3's 95,600-step run needing
 # its own dedicated job -- the same imbalance can show up here).
 #
-AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_finetuned_train.sh}"
+
+AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_finetuned_eval.sh}"
 seq_len="${seq_len:-20}"
 
-INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2.parquet"
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
-MODEL_DIR="$REPO_DIR/model_weights/ISRUC_full"    # Need to change back to finetuned path (see git version, replace ISRUC_full with NCH_${AGE_BIN})
-PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}/inference_only" # Running for inference only results so need to change back
+
+if [ "$seq_len" -eq 20 ]; then
+    SUFFIX=""
+else
+    SUFFIX="_seqlen${seq_len}"
+fi
+
+INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2${SUFFIX}.parquet"
+MODEL_DIR="$REPO_DIR/model_weights/NCH_${AGE_BIN}${SUFFIX}"
+PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
 
 cd "$REPO_DIR" || exit 1
 
