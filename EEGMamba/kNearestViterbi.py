@@ -127,7 +127,7 @@ def train_hmm_mmi(obs_probs_list, train_ytrue_list, A_init, pi_init,
     A_raw = torch.nn.Parameter(
         torch.tensor(np.log(A_init + 1e-10), dtype=torch.float64).to(device)
     )
-    alpha = torch.nn.Parameter(torch.tensor(0.7, dtype=torch.float64).to(device))  # initial alpha obtained from alpha sweep prior to training
+    alpha = torch.nn.Parameter(torch.tensor(float(alpha_init), dtype=torch.float64).to(device))
     pi = torch.tensor(np.log(pi_init + 1e-10), dtype=torch.float64).to(device)
 
     optimiser = torch.optim.Adam([A_raw, alpha], lr=lr)
