@@ -70,7 +70,7 @@ apptainer exec --nv \
     python3 finetune_main.py \
     --downstream_dataset NCH \
     --datasets_dir "$DATASETS_DIR" \
-    --age_bin "${AGE_ARGS[@]}" \
+    "${AGE_ARGS[@]}" \
     --seq_len "$seq_len" \
     --num_of_classes 5 \
     --model_dir "$MODEL_DIR" \
