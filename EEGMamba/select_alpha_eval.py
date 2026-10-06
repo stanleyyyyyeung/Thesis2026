@@ -12,7 +12,7 @@ import argparse
 import glob
 import json
 import os
-
+import pyarrow.parquet as pq
 import numpy as np
 from scipy.spatial.distance import jensenshannon
 from sklearn.metrics import accuracy_score, cohen_kappa_score, f1_score
@@ -28,6 +28,11 @@ from hmm_refine_nch import (
 
 EVAL_SPLIT_NAME = "eval"
 
+def alpha_json_name(age_bin, seq_len):
+    return f"alpha_selection_{age_bin}_seqlen{seq_len}.json"
+
+def check_json_name(age_bin, seq_len):
+    return f"hmm_trained_eval_check_{age_bin}_seqlen{seq_len}.json"
 
 # ============================================================
 # LOAD EVAL-SPLIT SCORES (mirrors load_nch_train_probs_and_gt)
@@ -82,7 +87,7 @@ def per_stage_jsd(y_true, y_pred):
     return out
 
 
-def evaluate_hmm_trained(pred_dir, age_bin):
+def evaluate_hmm_trained(pred_dir, age_bin, seq_len):
     params_path = os.path.join(pred_dir, "hmmRefined", f"hmm_trained_params_{age_bin}.npz")
     if not os.path.exists(params_path):
         raise FileNotFoundError(
@@ -113,7 +118,7 @@ def evaluate_hmm_trained(pred_dir, age_bin):
     print(f"  JSD      : {np.nanmean(jsds):.4f} ± {np.nanstd(jsds):.4f}  (lower=better)")
     print("=" * 80)
 
-    out_path = os.path.join(pred_dir, f"hmm_trained_eval_check_{age_bin}.json")
+    out_path = os.path.join(pred_dir, check_json_name(age_bin, seq_len))
     with open(out_path, "w") as f:
         json.dump(dict(age_bin=age_bin, split=EVAL_SPLIT_NAME, mode="hmm_trained",
                         alpha=alpha,
@@ -162,8 +167,14 @@ def main():
                           "sweep gets.")
     args = ap.parse_args()
 
+    # Check if the file with correct context length is loaded
+    md = pq.ParquetFile(args.index_path).schema_arrow.metadata or {}
+    file_len = int(md[b"seq_len"]) if b"seq_len" in md else None
+    if file_len != args.seq_len:
+        raise ValueError(f"{args.index_path} has seq_len={file_len}, but --seq_len={args.seq_len}")
+
     if args.mode == "hmm_trained":
-        evaluate_hmm_trained(args.pred_dir, args.age_bin)
+        evaluate_hmm_trained(args.pred_dir, args.age_bin, args.seq_len)
         return
 
     # --- A from train split (unchanged from hmm_refine_nch.py) ---
@@ -230,7 +241,7 @@ def main():
               f"{acc_best['alpha']} instead of {best['alpha']} -- the two criteria "
               f"disagree, which is itself worth reporting.\n")
 
-    out_path = os.path.join(args.pred_dir, f"alpha_selection_{args.age_bin}.json")
+    out_path = os.path.join(args.pred_dir, alpha_json_name(args.age_bin, args.seq_len))
     with open(out_path, "w") as f:
         json.dump(dict(age_bin=args.age_bin, split=EVAL_SPLIT_NAME,
                         selection_metric=args.selection_metric,
