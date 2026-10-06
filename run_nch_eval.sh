@@ -15,22 +15,51 @@
 # (see katana_command_reference.md's note on n3's 95,600-step run needing
 # its own dedicated job -- the same imbalance can show up here).
 #
+# Pooled over 2 bins (trained with: qsub -v bins=6-12y+13-18y run_nch.sh):
+#   train_tag=pooled-6-12y-13-18y
+#   qsub -v bin=6-12y,train_tag=pooled-6-12y-13-18y,seq_len=20 run_nch_test.sh
+#   -> loads NCH_pooled-6-12y-13-18y_seqlen20, writes
+#      predictions/NCH_pooled-6-12y-13-18y_seqlen20_on-6-12y
+#   (test bin must be one of the two trained bins, e.g. 6-12y or 13-18y)
+#
+# Pooled over all 5 bins (trained with: qsub -v bins=all run_nch.sh):
+#   train_tag=pooled-all
+#   qsub -v bin=6-12y,train_tag=pooled-all,seq_len=20 run_nch_test.sh
+#   -> loads NCH_pooled-all_seqlen20, writes
+#      predictions/NCH_pooled-all_seqlen20_on-6-12y
+#   (repeat with bin=1-2y, 3-5y, 13-18y, 19-100y for the other groups)
+#
 
 AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_finetuned_eval.sh}"
 seq_len="${seq_len:-20}"
+train_tag="${train_tag:-$AGE_BIN}" 
 
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
 
-if [ "$seq_len" -eq 20 ]; then
-    SUFFIX=""
+if [ "$train_tag" = "$AGE_BIN" ]; then
+    # per-bin model: keep the legacy no-suffix convention at seq_len 20
+    if [ "$seq_len" -eq 20 ]; then SUFFIX=""; else SUFFIX="_seqlen${seq_len}"; fi
+    MODEL_DIR="$REPO_DIR/model_weights/NCH_${AGE_BIN}${SUFFIX}"
+    PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
 else
-    SUFFIX="_seqlen${seq_len}"
+    # pooled model: always explicit suffix (matches run_nch.sh)
+    MODEL_DIR="$REPO_DIR/model_weights/NCH_${train_tag}_seqlen${seq_len}"
+    PRED_DIR="$REPO_DIR/predictions/NCH_${train_tag}_seqlen${seq_len}_on-${AGE_BIN}"
 fi
+[ -d "$MODEL_DIR" ] || { echo "ERROR: missing $MODEL_DIR" >&2; exit 1; }
 
-INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2${SUFFIX}.parquet"
-MODEL_DIR="$REPO_DIR/model_weights/NCH_${AGE_BIN}${SUFFIX}"
-PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
+IDX_DIR="/srv/scratch/z5423210/StanleyThesis2026/nch_index"
+if [ "$seq_len" -eq 20 ]; then
+    if [ -f "$IDX_DIR/nch_index_nch_v2_seqlen20.parquet" ]; then
+        INDEX_PATH="$IDX_DIR/nch_index_nch_v2_seqlen20.parquet"
+    else
+        INDEX_PATH="$IDX_DIR/nch_index_nch_v2.parquet"      # legacy, built before the suffix existed
+    fi
+else
+    INDEX_PATH="$IDX_DIR/nch_index_nch_v2_seqlen${seq_len}.parquet"
+fi
+[ -f "$INDEX_PATH" ] || { echo "ERROR: missing $INDEX_PATH" >&2; exit 1; }
 
 cd "$REPO_DIR" || exit 1
 
