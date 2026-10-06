@@ -20,21 +20,33 @@
 # bin (predictions/NCH_<bin>/{rec_id}_probs.npy must exist).
 #
 
-AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_eval_hmm_trained.sh}"
+AGE_BIN="${bin:?Must pass test age bin}"
 seq_len="${seq_len:-20}"
-pi_source="${pi_source:-uniform}"
+train_tag="${train_tag:-$AGE_BIN}"     # same value you used for run_nch_test.sh
 
-REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
+REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 
-if [ "$seq_len" -eq 20 ]; then
-    SUFFIX=""
+if [ "$train_tag" = "$AGE_BIN" ]; then
+    if [ "$seq_len" -eq 20 ]; then SUFFIX=""; else SUFFIX="_seqlen${seq_len}"; fi
+    PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
 else
     SUFFIX="_seqlen${seq_len}"
+    PRED_DIR="$REPO_DIR/predictions/NCH_${train_tag}_seqlen${seq_len}_on-${AGE_BIN}"
 fi
+ls "$PRED_DIR"/*_probs.npy >/dev/null 2>&1 || { echo "ERROR: no *_probs.npy in $PRED_DIR (run test_nch first)" >&2; exit 1; }
 
-INDEX_PATH="/srv/scratch/z5423210/StanleyThesis2026/nch_index/nch_index_nch_v2${SUFFIX}.parquet"
-PRED_DIR="$REPO_DIR/predictions/NCH_${AGE_BIN}${SUFFIX}"
+IDX_DIR="/srv/scratch/z5423210/StanleyThesis2026/nch_index"
+if [ "$seq_len" -eq 20 ]; then
+    if [ -f "$IDX_DIR/nch_index_nch_v2_seqlen20.parquet" ]; then
+        INDEX_PATH="$IDX_DIR/nch_index_nch_v2_seqlen20.parquet"
+    else
+        INDEX_PATH="$IDX_DIR/nch_index_nch_v2.parquet"   # legacy
+    fi
+else
+    INDEX_PATH="$IDX_DIR/nch_index_nch_v2_seqlen${seq_len}.parquet"
+fi
+[ -f "$INDEX_PATH" ] || { echo "ERROR: missing $INDEX_PATH" >&2; exit 1; }
 
 cd "$REPO_DIR" || exit 1
 
