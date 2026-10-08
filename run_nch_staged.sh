@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
-#PBS -l walltime=60:00:00
+#PBS -l walltime=40:00:00
 #PBS -N NCH_EEGMamba_MS
 
 # Staged finetuning (multi-scale patch encoder) on top of an EXISTING finetuned baseline.
@@ -11,10 +11,8 @@
 #   Control B (no new branch): qsub -v bin=6-12y,mode=full_pe,no_new_branch=1 run_nch_staged.sh
 #   Control A (continue only): qsub -v bin=6-12y,no_new_branch=1,stage1_epochs=0 run_nch_staged.sh
 #   Pooled bins:               qsub -v bins=6-12y+13-18y run_nch_staged.sh     (or bins=all)
-#   Extra options (all optional env vars): baseline_ckpt, kernel_size, gate_init, stage1_epochs,
-#     stage2_epochs, lr_new1, lr_pe1, lr_new2, lr_pe2, lr_rest2, seq_lr_mult, head_lr_mult,
-#     batch_size, num_workers, data_source (auto|cache|live), seed, verify (1|0), overwrite (0|1)
 #
+# The baseline folder (model_weights/NCH_*) is only READ. Nothing in it is deleted or overwritten.
 
 export APPTAINER_CACHEDIR=/srv/scratch/z5423210/.apptainer_cache
 export APPTAINER_TMPDIR=/srv/scratch/z5423210/.apptainer_tmp
@@ -91,16 +89,24 @@ if [ ! -f "$DATASETS_DIR" ]; then
 fi
 echo "Using index: $DATASETS_DIR"
 
-# baseline checkpoint (READ ONLY): the baseline script's output folder for this bin/pool
-BASE_DIR="$EEGMAMBA_DIR/model_weights/NCH_${BIN_TAG}_seqlen${seq_len}"
+# baseline checkpoint (READ ONLY). Folder naming differs between code versions:
+#   current code : model_weights/NCH_<tag>_seqlen<L>/
+#   legacy code  : model_weights/NCH_<tag>/          (seq_len 20 runs made before the seq_len flag existed)
+BASE_DIR_NEW="$EEGMAMBA_DIR/model_weights/NCH_${BIN_TAG}_seqlen${seq_len}"
+BASE_DIR_LEGACY="$EEGMAMBA_DIR/model_weights/NCH_${BIN_TAG}"
 if [ -n "${baseline_ckpt:-}" ]; then
     BASELINE_CKPT="$baseline_ckpt"
 else
-    shopt -s nullglob; cands=("$BASE_DIR"/*.pth); shopt -u nullglob
+    shopt -s nullglob
+    cands=("$BASE_DIR_NEW"/*.pth)
+    if [ "$seq_len" -eq 20 ]; then cands+=("$BASE_DIR_LEGACY"/*.pth); fi
+    shopt -u nullglob
     if [ "${#cands[@]}" -eq 1 ]; then
         BASELINE_CKPT="${cands[0]}"
     else
-        echo "ERROR: expected exactly 1 .pth in $BASE_DIR, found ${#cands[@]}: ${cands[*]}" >&2
+        echo "ERROR: expected exactly 1 baseline .pth, found ${#cands[@]}: ${cands[*]}" >&2
+        echo "       searched: $BASE_DIR_NEW" >&2
+        [ "$seq_len" -eq 20 ] && echo "                 $BASE_DIR_LEGACY" >&2
         echo "       Pass the one to use:  qsub -v ...,baseline_ckpt=/full/path/model.pth" >&2
         exit 1
     fi
