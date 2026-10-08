@@ -49,6 +49,8 @@ class PatchEmbeddingMS(PatchEmbedding):
                 nn.GELU(),
             )
             self.gate = nn.Parameter(torch.full((1,), float(gate_init)))
+        self.track = False
+        self.last_ratio = None
 
     def forward(self, x, mask=None):
         bz, ch_num, patch_num, patch_size = x.shape
@@ -63,7 +65,11 @@ class PatchEmbeddingMS(PatchEmbedding):
 
         time_emb = self.proj_in(time_x)
         if self.use_new_branch:
-            time_emb = time_emb + self.gate * self.proj_in_b(time_x)
+            branch = self.gate * self.proj_in_b(time_x)
+            if self.track:
+                self.last_ratio = (branch.detach().float().norm()
+                                   / time_emb.detach().float().norm().clamp_min(1e-8)).item()
+            time_emb = time_emb + branch
         time_emb = time_emb.permute(0, 2, 1, 3).contiguous().view(bz, ch_num, patch_num, self.d_model)
 
         freq_x = rearrange(mask_x, 'b d c l -> b c l d')

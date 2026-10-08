@@ -101,6 +101,10 @@ def parse():
     ap.add_argument('--amp', action='store_true', help='bf16 autocast')
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--verify', action='store_true', help='only check gate=0 reproduces the baseline, then exit')
+    ap.add_argument('--require_open', action='store_true',
+                    help='only select checkpoints where ||gate*branch||/||proj_in|| >= min_ratio')
+    ap.add_argument('--min_ratio', type=float, default=0.1,
+                    help='guess; set it after looking at the branch_ratio trajectory of a short sanity run')
     return ap.parse_args()
 
 
@@ -150,22 +154,40 @@ def score_of(m, metric):
 @torch.no_grad()
 def evaluate(model, loader, device, loss_fn, amp):
     model.eval()
+    pe = model.backbone.patch_embedding
+    has_branch = getattr(pe, 'use_new_branch', False)
+    pe.track = has_branch
+    ratios = []
     tot, n, ps, ys = 0.0, 0, [], []
     for x, y in loader:
         x, y = x.to(device), y.to(device)
         with torch.autocast('cuda', dtype=torch.bfloat16, enabled=amp):
             logits = model(x)
+        if has_branch:
+            ratios.append(pe.last_ratio)
         c = logits.shape[-1]
         loss = loss_fn(logits.reshape(-1, c).float(), y.reshape(-1))
         tot += loss.item() * y.numel()
         n += y.numel()
         ps.append(logits.argmax(-1).reshape(-1).cpu())
         ys.append(y.reshape(-1).cpu())
+    pe.track = False
     p, t = torch.cat(ps).numpy(), torch.cat(ys).numpy()
     return {'loss': tot / n, 'acc': float(accuracy_score(t, p)),
             'f1': float(f1_score(t, p, average='macro')), 'kappa': float(cohen_kappa_score(t, p)),
             'per_class_f1': f1_score(t, p, average=None).tolist(),
-            'confusion': confusion_matrix(t, p).tolist()}
+            'confusion': confusion_matrix(t, p).tolist(),
+            'gate': float(pe.gate.item()) if has_branch else None,
+            'branch_ratio': float(np.mean(ratios)) if has_branch else None}
+
+def fmt(m):
+    s = f"loss {m['loss']:.4f} acc {m['acc']:.4f} mF1 {m['f1']:.4f} kappa {m['kappa']:.4f}"
+    if m.get('branch_ratio') is not None:
+        s += f" | gate {m['gate']:.4f} ratio {m['branch_ratio']:.4f}"
+    return s
+
+def snapshot(model):
+    return {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
 
 def train_stage(model, stage, args, loaders, device, loss_fn, log):
@@ -183,11 +205,23 @@ def train_stage(model, stage, args, loaders, device, loss_fn, log):
     n_tr = sum(p.numel() for p in model.parameters() if p.requires_grad)
     log(f'--- stage {stage} | mode={args.mode} | trainable params={n_tr:,} | epochs={epochs}')
 
-    # epoch 0 (= starting point) is a candidate, so the selected model is never worse on val
-    best = evaluate(model, val_loader, device, loss_fn, args.amp)
-    best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-    log(f'stage {stage} ep 0 | val {fmt(best)}')
-    bad = 0
+    pe = model.backbone.patch_embedding
+    has_branch = getattr(pe, 'use_new_branch', False)
+
+    def is_open(m):
+        return m.get('branch_ratio') is not None and m['branch_ratio'] >= args.min_ratio
+
+    def eligible(m):
+        # control arms (no branch) are always eligible; otherwise only if required
+        return (not args.require_open) or (not has_branch) or is_open(m)
+
+    # epoch 0 = stage start. Always kept as a fallback; only a *candidate* if eligible.
+    ref = evaluate(model, val_loader, device, loss_fn, args.amp)
+    ref_state = snapshot(model)
+    log(f'stage {stage} ep 0 | val {fmt(ref)}')
+    best, best_state = (ref, ref_state) if eligible(ref) else (None, None)
+
+    bad, step = 0, 0
     for ep in range(1, epochs + 1):
         model.train()
         for m in frozen:
@@ -200,31 +234,35 @@ def train_stage(model, stage, args, loaders, device, loss_fn, log):
                 logits = model(x)
             loss = loss_fn(logits.reshape(-1, logits.shape[-1]).float(), y.reshape(-1))
             loss.backward()
+            if has_branch and step in (0, 50, 200, 1000):
+                bg = sum(p.grad.norm().item() ** 2 for p in pe.proj_in_b.parameters()
+                         if p.grad is not None) ** 0.5
+                gg = pe.gate.grad.item() if pe.gate.grad is not None else float('nan')
+                log(f'  step {step} gate={pe.gate.item():.4f} gate.grad={gg:.3e} proj_in_b.grad_norm={bg:.3e}')
             torch.nn.utils.clip_grad_norm_([p for p in model.parameters() if p.requires_grad], 1.0)
             opt.step()
             run += loss.item()
+            step += 1
         sched.step()
         val = evaluate(model, val_loader, device, loss_fn, args.amp)
-        gate = getattr(model.backbone.patch_embedding, 'gate', None)
-        g = f' gate={gate.item():.4f}' if gate is not None else ''
-        log(f'stage {stage} ep {ep} | train loss {run / len(train_loader):.4f} | val {fmt(val)}{g}')
-        if score_of(val, args.val_metric) > score_of(best, args.val_metric):
-            best = val
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            bad = 0
-        else:
+        log(f'stage {stage} ep {ep} | train loss {run / len(train_loader):.4f} | val {fmt(val)}')
+        if eligible(val) and (best is None or score_of(val, args.val_metric) > score_of(best, args.val_metric)):
+            best, best_state, bad = val, snapshot(model), 0
+        elif best is not None:           # patience only starts once an eligible checkpoint exists
             bad += 1
             if bad >= args.patience:
                 log(f'early stop at epoch {ep}')
                 break
+
+    if best is None:
+        log(f'WARNING: stage {stage}: branch never reached min_ratio={args.min_ratio}; '
+            f'reverting to stage start. This run is NOT evidence about the branch.')
+        best, best_state = ref, ref_state
     model.load_state_dict(best_state)
+    best['gate_open'] = bool(has_branch and is_open(best))
+    log(f'stage {stage} selected | val {fmt(best)} | gate_open={best["gate_open"]}')
     torch.save(best_state, os.path.join(args.out_dir, f'stage{stage}_best.pt'))
     return best
-
-
-def fmt(m):
-    return f"loss {m['loss']:.4f} acc {m['acc']:.4f} mF1 {m['f1']:.4f} kappa {m['kappa']:.4f}"
-
 
 def run(args):
     device = torch.device(f'cuda:{args.cuda}')
