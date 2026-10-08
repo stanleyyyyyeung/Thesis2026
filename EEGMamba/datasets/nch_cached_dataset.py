@@ -10,9 +10,9 @@ from torch.utils.data import DataLoader, Dataset
 
 # ============================ ASSUMPTIONS - VERIFY ============================
 CACHE_ROOT = "/srv/scratch/speechdata/sleep_data/NCH/eegmamba_seq"
-SEQ_SUBDIR = "seq"             # confirmed by build_eegmamba_split_lists.py
-LABEL_SUBDIR = "label"         # ASSUMED: labels mirror seq/NCH-<id>/<same file name>.npy
-LIST_DIR_NAME = "split_lists"  # confirmed
+SEQ_SUBDIR = "seq"
+LABEL_SUBDIR = "labels"
+LIST_DIR_NAME = "split_lists"
 SPLIT_TO_LIST = {"train": "train_list", "val": "eval_list", "test": "test_list"}  # confirmed
 CACHED_SEQ_LEN = 20            # cache holds 20-epoch blocks
 N_CH, EPOCH_SAMPLES = 6, 6000
