@@ -178,7 +178,7 @@ def main():
         return
 
     # --- A from train split (unchanged from hmm_refine_nch.py) ---
-    train_gt = load_nch_train_sequences(args.index_path, args.age_bin)
+    train_gt = load_nch_train_sequences(args.index_path, args.age_bin, seq_len=args.seq_len)
     verify_label_range(train_gt, context=f"{args.age_bin} train GT")
     A, pi_empirical = estimate_hmm_parameters_from_gt(train_gt, label=f"NCH {args.age_bin} (train)")
     pi = get_uniform_pi() if args.pi_source == "uniform" else pi_empirical
