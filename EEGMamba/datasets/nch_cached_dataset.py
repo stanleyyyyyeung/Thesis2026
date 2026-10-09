@@ -20,6 +20,7 @@ CACHE_SCALE = 0.01             # ASSUMED: files hold microvolts; model input = u
                                # which equals the live path's volts * 1e4
 X_KEY, Y_KEY = "x", "y"        # only used if a .npy is a pickled dict instead of a plain array
 PLAUSIBLE_STD = (0.02, 20.0)   # scale sanity range for per-channel std in model units
+LABEL_OFFSET = 1               # the parquet file uses 0-index based staging but the processed file uses 1-based
 # ==============================================================================
 
 
@@ -108,7 +109,11 @@ class NCHCachedDataset(Dataset):
         else:
             x, y = obj, np.load(lp)
         x = np.asarray(x, dtype=np.float32) * CACHE_SCALE
-        y = np.asarray(y).astype(np.int64).reshape(-1)
+
+        # Convert 1-based indexing to 0-based
+        y = np.asarray(y).astype(np.int64).reshape(-1) - LABEL_OFFSET
+        if y.min() < 0 or y.max() > 4:
+            raise ValueError(f'{lp}: labels out of range after offset: {np.unique(y).tolist()}')
         if x.shape != (CACHED_SEQ_LEN, N_CH, EPOCH_SAMPLES) or y.shape[0] != CACHED_SEQ_LEN:
             raise ValueError(f"{sp}: expected x (20,6,6000) and y (20,), got {x.shape} and {y.shape}")
         return torch.from_numpy(x), torch.from_numpy(y)
