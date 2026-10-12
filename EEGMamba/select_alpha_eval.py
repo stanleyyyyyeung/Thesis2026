@@ -165,20 +165,23 @@ def main():
                           "data and has more overfitting room than picking 1-of-8 "
                           "alpha values, so it needs the same eval check the plain "
                           "sweep gets.")
+    ap.add_argument("--data_source", default="auto", choices=["auto", "cache", "live"])
     args = ap.parse_args()
 
-    # Check if the file with correct context length is loaded
-    md = pq.ParquetFile(args.index_path).schema_arrow.metadata or {}
-    file_len = int(md[b"seq_len"]) if b"seq_len" in md else None
-    if file_len != args.seq_len:
-        raise ValueError(f"{args.index_path} has seq_len={file_len}, but --seq_len={args.seq_len}")
+    # Validate the parquet only if it will actually be used (live path)
+    if args.data_source == 'live':
+        md = pq.ParquetFile(args.index_path).schema_arrow.metadata or {}
+        file_len = int(md[b"seq_len"]) if b"seq_len" in md else 20   # legacy index = 20
+        if file_len != args.seq_len:
+            raise ValueError(f"{args.index_path} has seq_len={file_len}, but --seq_len={args.seq_len}")
 
     if args.mode == "hmm_trained":
         evaluate_hmm_trained(args.pred_dir, args.age_bin, args.seq_len)
         return
 
     # --- A from train split (unchanged from hmm_refine_nch.py) ---
-    train_gt = load_nch_train_sequences(args.index_path, args.age_bin, seq_len=args.seq_len)
+    train_gt = load_nch_train_sequences(args.index_path, args.age_bin,
+                                        seq_len=args.seq_len, data_source=args.data_source)
     verify_label_range(train_gt, context=f"{args.age_bin} train GT")
     A, pi_empirical = estimate_hmm_parameters_from_gt(train_gt, label=f"NCH {args.age_bin} (train)")
     pi = get_uniform_pi() if args.pi_source == "uniform" else pi_empirical

@@ -155,19 +155,26 @@ def viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha):
 # ============================================================
 # LOADING GROUND TRUTH FOR THE TRAINING SPLIT
 # ============================================================
-def load_nch_train_sequences(index_path, age_bin, seq_len=20):
-    """
-    Reconstruct per-recording, chronologically-ordered label sequences for
-    the NCH training split, for empirical transition-matrix estimation.
-
-    NOTE: this currently goes through NCHIndexDataset.__getitem__, which
-    decodes EEG (x) even though only the label (y) is needed here -- that
-    is wasted work. If NCHIndexDataset's underlying dataframe already
-    carries per-epoch labels without requiring EDF decode (worth checking
-    directly against its source), swap this for a direct dataframe read.
-    As written this is correct but should be run once as a CPU-only job,
-    not folded into a GPU inference run.
-    """
+def load_nch_train_sequences(index_path, age_bin, seq_len=20, data_source='auto'):
+    """Per-recording chronological train labels. Uses the preprocessed cache's label
+    files when usable (no EDF/signal decode), else falls back to the parquet path."""
+    if data_source != 'live':
+        from argparse import Namespace
+        from datasets.nch_cached_dataset import NCHCachedDataset, cache_status, CACHE_ROOT, LABEL_OFFSET
+        ok, reasons = cache_status(Namespace(seq_len=seq_len, age_bin=age_bin))
+        if ok:
+            ds = NCHCachedDataset(CACHE_ROOT, 'train', age_bin)   # items are filename-sorted per subject dir
+            recs = {}
+            for sp, lp in ds.items:
+                y = np.load(lp).astype(np.int64).reshape(-1) - LABEL_OFFSET   # labels only, x never loaded
+                recs.setdefault(os.path.dirname(sp), []).append(y)
+            y_true_list = [np.concatenate(v) for v in recs.values()]
+            print(f"[{age_bin}] (cache) {len(y_true_list)} training recordings, "
+                  f"{sum(len(y) for y in y_true_list)} epochs for GT transition estimation.")
+            return y_true_list
+        if data_source == 'cache':
+            raise RuntimeError(f"data_source=cache but cache unusable: {reasons[:5]}")
+        print(f"[{age_bin}] cache not usable -> parquet. Reason: {reasons[:3]}")
     from datasets.nch_dataset import NCHIndexDataset  # local import: this
                                                         # module has no
                                                         # other torch/cuda
@@ -233,7 +240,8 @@ def load_nch_train_probs_and_gt(pred_dir, age_bin):
 # ============================================================
 # MAIN REFINEMENT LOOP
 # ============================================================
-def refine_age_bin(pred_dir, age_bin, mode, index_path, seq_len=20, pi_source="uniform", alpha_init=0.7):
+def refine_age_bin(pred_dir, age_bin, mode, index_path, seq_len=20, pi_source="uniform",
+                   alpha_init=0.7, data_source='auto'):
     assert mode in ("hmm", "hmm_trained")
     assert pi_source in ("uniform", "empirical")
 
@@ -246,7 +254,7 @@ def refine_age_bin(pred_dir, age_bin, mode, index_path, seq_len=20, pi_source="u
     # --------------------------------------------------------
     # 1. Estimate (or train) the transition prior from NCH train split
     # --------------------------------------------------------
-    train_gt = load_nch_train_sequences(index_path, age_bin, seq_len=seq_len)
+    train_gt = load_nch_train_sequences(index_path, age_bin, seq_len=seq_len, data_source=data_source)
     verify_label_range(train_gt, context=f"{age_bin} train GT")
     A_init, pi_empirical = estimate_hmm_parameters_from_gt(
         train_gt, label=f"NCH {age_bin} (train split)"
@@ -355,6 +363,7 @@ def main():
                               "sweep for this age bin, so MMI training starts from "
                               "a value you've already validated rather than an "
                               "arbitrary constant.")
+    parser.add_argument('--data_source', type=str, default='auto', choices=['auto', 'cache', 'live'])
     args = parser.parse_args()
 
     print(f"\n{'='*60}\n  Age bin: {args.age_bin} | Mode: {args.mode} | seq_len: {args.seq_len} "
