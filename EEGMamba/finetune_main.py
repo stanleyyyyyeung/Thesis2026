@@ -3,6 +3,10 @@ import random
 
 import numpy as np
 import torch
+import contextlib
+import json
+import os
+import time
 
 from datasets import faced_dataset, seedv_dataset, physio_dataset, shu_dataset, isruc_dataset, chb_dataset, \
     speech_dataset, mumtaz_dataset, seedvig_dataset, stress_dataset, tuev_dataset, tuab_dataset, bciciv2a_dataset, \
@@ -25,6 +29,38 @@ def str2bool(v):
             f"Expected a boolean value (true/false), got {v!r}"
         )
 
+NCH_AGE_BINS = ['1-2y', '3-5y', '6-12y', '13-18y', '19-100y']
+
+
+def resolve_nch_bins(params):
+    spec = params.age_bins if params.age_bins is not None else params.age_bin
+    spec = str(spec).strip()
+    bins = NCH_AGE_BINS if spec.lower() == 'all' else [b for b in spec.replace('+', ',').split(',') if b]
+    bad = [b for b in bins if b not in NCH_AGE_BINS]
+    if bad:
+        raise ValueError(f'Unknown age bin(s) {bad}; valid: {NCH_AGE_BINS} or "all"')
+    return list(dict.fromkeys(bins))
+
+
+@contextlib.contextmanager
+def labelled_checkpoints(model_dir, tag):
+    """Same directory, but every torch.save into model_dir gets '<tag>__' prepended.
+    The tag contains a timestamp, so different runs can never collide."""
+    real_save = torch.save
+    model_dir = os.path.abspath(model_dir)
+
+    def save(obj, f, *args, **kwargs):
+        if isinstance(f, (str, os.PathLike)):
+            p = os.path.abspath(f)
+            if os.path.dirname(p) == model_dir and not os.path.basename(p).startswith(tag):
+                f = os.path.join(model_dir, f'{tag}__{os.path.basename(p)}')
+        return real_save(obj, f, *args, **kwargs)
+
+    torch.save = save
+    try:
+        yield
+    finally:
+        torch.save = real_save
 
 def main():
     parser = argparse.ArgumentParser(description='Big model downstream')
@@ -91,6 +127,12 @@ def main():
     parser.add_argument('--foundation_dir', type=str,
                         default='pretrained_weights/pretrained_EEGMamba.pth',
                         help='foundation_dir')
+    parser.add_argument('--data_source', type=str, default='auto', choices=['auto', 'cache', 'live'],
+                        help="NCH only: auto = preprocessed cache if usable, else parquet on-the-fly; "
+                             "cache = fail if the cache is unusable; live = parquet only")
+    parser.add_argument('--run_tag', type=str, default=None,
+                        help="Prefix for checkpoint filenames. Default: auto-generated from "
+                             "bins/seq_len/data source/timestamp, so runs never overwrite each other.")
 
     params = parser.parse_args()
     print(params)
@@ -131,20 +173,28 @@ def main():
         t = Trainer(params, data_loader, model)
         t.train_for_multiclass()
     elif params.downstream_dataset == 'NCH':
-        if params.age_bins is not None:
-            params.age_bin = ("all" if params.age_bins == "all" else
-                              [b for b in params.age_bins.replace('+', ',').split(',') if b])
-        assert params.age_bin is not None, "Pass --age_bin or --age_bins for NCH"
+        assert params.age_bin is not None or params.age_bins is not None, "Pass --age_bin or --age_bins for NCH"
+        assert params.seq_len is not None, "--seq_len is required for NCH"
 
-        assert params.seq_len is not None, (
-            "--seq_len is required for NCH, e.g. --seq_len 100 "
-            "(must match an existing nch_index_..._seqlen{N}.parquet)"
-        )
-        load_dataset = nch_dataset.LoadDataset(params)
-        data_loader = load_dataset.get_data_loader()
+        bins = resolve_nch_bins(params)
+        params.age_bin = bins   # explicit list, used by both the cached and the parquet loaders
+
+        from datasets.nch_cached_dataset import LoadDatasetCachedFirst
+        loader = LoadDatasetCachedFirst(params, mode=params.data_source)
+        data_loader = loader.get_data_loader()     # falls back to parquet if the cache is unusable
+        print(f'[data] source used: {loader.source}')
+
+        tag = params.run_tag or (f"nch_{'+'.join(bins)}_seq{params.seq_len}_{loader.source}_"
+                                 f"{time.strftime('%Y%m%d-%H%M%S')}")
+        os.makedirs(params.model_dir, exist_ok=True)
+        with open(os.path.join(params.model_dir, f'{tag}__run_args.json'), 'w') as f:
+            json.dump({**vars(params), 'data_source_used': loader.source}, f, indent=2, default=str)
+        print(f'[ckpt] files in {params.model_dir} will be prefixed with: {tag}__')
+
         model = model_for_isruc.Model(params)
         t = Trainer(params, data_loader, model)
-        t.train_for_multiclass()
+        with labelled_checkpoints(params.model_dir, tag):
+            t.train_for_multiclass()
     elif params.downstream_dataset == 'CHB-MIT':
         load_dataset = chb_dataset.LoadDataset(params)
         data_loader = load_dataset.get_data_loader()

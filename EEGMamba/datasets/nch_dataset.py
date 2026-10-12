@@ -85,17 +85,16 @@ class NCHIndexDataset(Dataset):
         schema_metadata = pq.ParquetFile(index_parquet_path).schema_arrow.metadata or {}
         raw_seq_len = schema_metadata.get(b"seq_len")
         if raw_seq_len is None:
+            if self.seq_len != DEFAULT_SEQ_LEN:  # DEFAULT_SEQ_LEN = 20
+                raise ValueError(
+                    f"{index_parquet_path} has no 'seq_len' metadata, which is only "
+                    f"assumed for seq_len={DEFAULT_SEQ_LEN}. Rebuild the index for "
+                    f"seq_len={self.seq_len}."
+                )
+        elif int(raw_seq_len) != self.seq_len:
             raise ValueError(
-                f"{index_parquet_path} has no 'seq_len' key in its file metadata. "
-                "Likely built by a pre--seq-len version of build_nch_index.py. "
-                "Rebuild the index rather than assuming it's seq_len=20."
-            )
-        file_seq_len = int(raw_seq_len)
-        if file_seq_len != self.seq_len:
-            raise ValueError(
-                f"{index_parquet_path} was built with seq_len={file_seq_len}, but "
-                f"this Dataset was constructed with seq_len={self.seq_len}. Point "
-                f"--datasets_dir at nch_index_..._seqlen{self.seq_len}.parquet instead."
+                f"{index_parquet_path} was built with seq_len={int(raw_seq_len)}, but "
+                f"this Dataset was constructed with seq_len={self.seq_len}."
             )
 
         df = pd.read_parquet(index_parquet_path)
