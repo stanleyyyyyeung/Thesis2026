@@ -78,7 +78,8 @@ apptainer exec --nv \
     --frozen False \
     --seq_lr_mult "$seq_lr_mult" \
     --head_lr_mult "$head_lr_mult" \
-    --num_workers 0 \
+    --data_source 'cache' \     # Cache for preprocessed, live for parquet
+    --num_workers 4 \
     --cuda 0
 
 exit_code=$?
