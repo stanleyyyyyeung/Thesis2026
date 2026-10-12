@@ -16,6 +16,7 @@ AGE_BIN="${bin:?Must pass test age bin, e.g. qsub -v bin=1-2y select_alpha.sh}"
 seq_len="${seq_len:-20}"
 train_tag="${train_tag:-$AGE_BIN}"
 pi_source="${pi_source:-uniform}"
+DATA_SOURCE="${data_source:-cache}"  # Cache for preprocessed files, live for parquet
 mode="${mode:-hmm}"
 
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"

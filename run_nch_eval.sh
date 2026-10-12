@@ -33,9 +33,13 @@
 AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_finetuned_eval.sh}"
 seq_len="${seq_len:-20}"
 train_tag="${train_tag:-$AGE_BIN}" 
+DATA_SOURCE="${data_source:-cache}"   # Cache for preprocessed, live for parquet
 
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
 SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
+
+CKPT_ARG=""
+[ -n "${ckpt:-}" ] && CKPT_ARG="--checkpoint ${ckpt}"  # qsub -v bin=6-12y,train_tag=pooled-6-12y-13-18y,seq_len=20,ckpt=/path/to/model_weights/NCH_pooled-6-12y-13-18y_seqlen20/<tag>__best.pth run_nch_test.sh
 
 if [ "$train_tag" = "$AGE_BIN" ]; then
     # per-bin model: keep the legacy no-suffix convention at seq_len 20
@@ -78,6 +82,8 @@ apptainer exec --nv \
     --index_path "${INDEX_PATH}" \
     --model_dir "${MODEL_DIR}" \
     --pred_dir "${PRED_DIR}" \
+    --data_source "${DATA_SOURCE}" \
+    $CKPT_ARG \
     --split val \
     --cuda 0
 STATUS=$?
