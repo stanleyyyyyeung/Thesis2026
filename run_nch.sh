@@ -1,6 +1,6 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=8:ngpus=1:mem=64gb
-#PBS -l walltime=90:00:00
+#PBS -l walltime=70:00:00
 #PBS -N NCH_EEGMamba_Finetune
 
 export APPTAINER_CACHEDIR=/srv/scratch/z5423210/.apptainer_cache
@@ -30,6 +30,17 @@ echo "=========================================="
 seq_lr_mult="${seq_lr_mult:-2.0}"
 head_lr_mult="${head_lr_mult:-5.0}"
 
+exp="${exp:-}"   # Should set the initial gate value (0 is recommended)
+if [ -n "${ms_branch+x}" ] && [ -z "$exp" ]; then
+    echo "ERROR: pass exp=<name> with ms_branch, so the baseline folder is never touched" >&2; exit 1
+fi
+ms_branch="${ms_branch:-0}"
+ms_kernel_size="${ms_kernel_size:-99}"
+ms_gate_init="${ms_gate_init:-0.0}"
+ms_lr_mult="${ms_lr_mult:-10.0}"
+seed="${seed:-3407}"
+epochs="${epochs:-50}"
+
 # --- 2. Paths ---
 PROJECT_ROOT=/srv/scratch/z5423210/StanleyThesis2026
 EEGMAMBA_DIR=$PROJECT_ROOT/EEGMamba
@@ -49,7 +60,11 @@ fi
 
 echo "Using index: $DATASETS_DIR"
 
-MODEL_DIR="$PROJECT_ROOT/EEGMamba/model_weights/NCH_${BIN_TAG}_seqlen${seq_len}"
+if [ -n "$exp" ]; then
+    MODEL_DIR="$PROJECT_ROOT/EEGMamba/model_weights_joint/NCH_${BIN_TAG}_seqlen${seq_len}/${exp}_seed${seed}"
+else
+    MODEL_DIR="$PROJECT_ROOT/EEGMamba/model_weights/NCH_${BIN_TAG}_seqlen${seq_len}"
+fi
 
 PYTHONPATH_FULL=$EEGMAMBA_DIR:/srv/scratch/z5423210/python_packages
 
@@ -74,12 +89,15 @@ apptainer exec --nv \
     --seq_len "$seq_len" \
     --num_of_classes 5 \
     --model_dir "$MODEL_DIR" \
-    --epochs 50 \
+    --epochs "$epochs" \
     --frozen False \
     --seq_lr_mult "$seq_lr_mult" \
     --head_lr_mult "$head_lr_mult" \
-    --data_source 'cache' \     # Cache for preprocessed, live for parquet
+    --data_source 'cache' \
     --num_workers 4 \
+    --ms_branch "$ms_branch" --ms_kernel_size "$ms_kernel_size" \
+    --ms_gate_init "$ms_gate_init" --ms_lr_mult "$ms_lr_mult" \
+    --seed "$seed" \
     --cuda 0
 
 exit_code=$?
