@@ -133,6 +133,12 @@ def main():
     parser.add_argument('--run_tag', type=str, default=None,
                         help="Prefix for checkpoint filenames. Default: auto-generated from "
                              "bins/seq_len/data source/timestamp, so runs never overwrite each other.")
+    parser.add_argument('--ms_branch', type=str2bool, default=False,
+                        help='NCH only: use ModelMS (extra time-scale branch), trained from the foundation weights')
+    parser.add_argument('--ms_kernel_size', type=int, default=99)
+    parser.add_argument('--ms_gate_init', type=float, default=0.0)
+    parser.add_argument('--ms_lr_mult', type=float, default=1.0,
+                        help='LR multiplier for new branch + gate (1.0 = same as backbone)')
 
     params = parser.parse_args()
     print(params)
@@ -191,7 +197,14 @@ def main():
             json.dump({**vars(params), 'data_source_used': loader.source}, f, indent=2, default=str)
         print(f'[ckpt] files in {params.model_dir} will be prefixed with: {tag}__')
 
-        model = model_for_isruc.Model(params)
+        if params.ms_branch:
+            from models.model_ms import ModelMS
+            params.ms_use_new_branch = True
+            params.ms_keep_foundation = True
+            model = ModelMS(params)
+        else:
+            model = model_for_isruc.Model(params)
+        setup_seed(params.seed)
         t = Trainer(params, data_loader, model)
         with labelled_checkpoints(params.model_dir, tag):
             t.train_for_multiclass()

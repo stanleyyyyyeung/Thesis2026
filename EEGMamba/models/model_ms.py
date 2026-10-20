@@ -94,7 +94,8 @@ class ModelMS(Model):
 
     def __init__(self, param):
         p = copy.copy(param)
-        p.use_pretrained_weights = False
+        if not getattr(param, 'ms_keep_foundation', False):
+            p.use_pretrained_weights = False
         super().__init__(p)
         old = self.backbone.patch_embedding
         new = PatchEmbeddingMS(

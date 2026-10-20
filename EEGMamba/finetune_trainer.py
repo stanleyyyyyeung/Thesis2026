@@ -31,8 +31,12 @@ class Trainer(object):
         backbone_params = []
         sequence_encoder_params = []
         head_params = []
+        new_branch_params = []
         for name, param in self.model.named_parameters():
-            if "backbone" in name:
+            if "patch_embedding.proj_in_b" in name or name.endswith("patch_embedding.gate"):
+                new_branch_params.append(param)
+                param.requires_grad = True
+            elif "backbone" in name:
                 backbone_params.append(param)
                 if params.frozen:
                     param.requires_grad = False
@@ -43,13 +47,17 @@ class Trainer(object):
             else:
                 head_params.append(param)
 
+        extra = ([{'params': new_branch_params,
+                   'lr': self.params.lr * getattr(self.params, 'ms_lr_mult', 1.0),
+                   'weight_decay': 0.0}] if new_branch_params else []) 
+
         if self.params.optimizer == 'AdamW':
             if self.params.multi_lr:  # set different learning rates for different modules
                 self.optimizer = torch.optim.AdamW([
                     {'params': backbone_params, 'lr': self.params.lr},
                     {'params': sequence_encoder_params, 'lr': self.params.lr * self.params.seq_lr_mult},
                     {'params': head_params, 'lr': self.params.lr * self.params.head_lr_mult}
-                ], weight_decay=self.params.weight_decay)
+                ] + extra, weight_decay=self.params.weight_decay)
             else:
                 self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.params.lr,
                                                    weight_decay=self.params.weight_decay)
@@ -59,7 +67,7 @@ class Trainer(object):
                     {'params': backbone_params, 'lr': self.params.lr},
                     {'params': sequence_encoder_params, 'lr': self.params.lr * self.params.seq_lr_mult},
                     {'params': head_params, 'lr': self.params.lr * self.params.head_lr_mult}
-                ],  momentum=0.9, weight_decay=self.params.weight_decay)
+                ] + extra,  momentum=0.9, weight_decay=self.params.weight_decay)
             else:
                 self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.params.lr, momentum=0.9,
                                                  weight_decay=self.params.weight_decay)
@@ -114,6 +122,9 @@ class Trainer(object):
                     )
                 )
                 print(cm)
+                pe = getattr(getattr(self.model, 'backbone', None), 'patch_embedding', None)
+                if getattr(pe, 'use_new_branch', False):
+                    print('  new-branch gate: {:.4f}'.format(pe.gate.item()))
                 if kappa > kappa_best:
                     print("kappa increasing....saving weights !! ")
                     print("Val Evaluation: acc: {:.5f}, kappa: {:.5f}, f1: {:.5f}".format(
