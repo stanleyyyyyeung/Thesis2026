@@ -12,21 +12,24 @@ Two refinement modes:
                  own softmax scores on the training split -- run
                  `test_nch.py --split train` first for this age bin.
 
-Usage (call once per age bin -- loop in your shell script for all bins):
-    # empirical prior, alpha sweep
-    python hmm_refine_nch.py --age_bin 6-12y --mode hmm \
-        --pred_dir /srv/scratch/z5423210/StanleyThesis2026/EEGMamba/predictions/NCH_6-12y \
-        --index_path /srv/scratch/z5423210/StanleyThesis2026/nch_index.parquet
+Sequences are handled PER RUN: a run is a stretch of epochs with no gap between them
+(a gap = an unscored '?' epoch or similar). Transitions are only counted inside a run, and
+Viterbi is decoded separately for each run (each starting from the uniform pi), so the
+transition prior is never applied across a gap. Run boundaries come from
+<rec>_run_idx.json written by test_nch.py; recordings are '<subject>_<study>'.
 
-    # MMI-trained prior (requires test_nch.py --split train to have
-    # already been run for this bin, producing pred_dir/training_scores/)
+Usage (call once per age bin):
+    python hmm_refine_nch.py --age_bin 6-12y --mode hmm \
+        --pred_dir .../EEGMamba/predictions/NCH_6-12y --index_path .../nch_index_nch_v2.parquet
     python hmm_refine_nch.py --age_bin 6-12y --mode hmm_trained \
-        --pred_dir /srv/scratch/z5423210/StanleyThesis2026/EEGMamba/predictions/NCH_6-12y \
-        --index_path /srv/scratch/z5423210/StanleyThesis2026/nch_index.parquet
+        --pred_dir .../EEGMamba/predictions/NCH_6-12y --index_path .../nch_index_nch_v2.parquet
 """
 import argparse
 import glob
+import json
 import os
+import re
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -39,63 +42,96 @@ from kNearestViterbi import train_hmm_mmi
 # ============================================================
 AGE_BINS = ["1-2y", "3-5y", "6-12y", "13-18y", "19-100y"]
 
-STAGES = [0, 1, 2, 3, 4]   # W, N1, N2, N3, REM -- 0-indexed, matching
-                           # test_nch.py's pred_y / y_true convention.
-                           # This was inferred (not confirmed) during the
-                           # SleepTransformer->EEGMamba port -- do not
-                           # trust it silently, see verify_label_range().
+STAGES = [0, 1, 2, 3, 4]   # W, N1, N2, N3, REM -- 0-indexed, matching test_nch.py's pred_y / y_true.
 STAGE_NAMES = {0: "W", 1: "N1", 2: "N2", 3: "N3", 4: "REM"}
 K = len(STAGES)
 
 ALPHA_VALUES = [0.0, 0.1, 0.2, 0.5, 0.7, 1.0, 2.0, 5.0]
+
+REC_PROB_RE = re.compile(r'^(\d+_\d+)_probs\.npy$')   # <subject>_<study>_probs.npy
 
 
 # ============================================================
 # LABEL SANITY CHECK
 # ============================================================
 def verify_label_range(y_true_list, context=""):
-    """
-    Raise loudly if labels fall outside 0..K-1. Direct check on the
-    0-indexed assumption flagged during the port: SleepTransformer's .mat
-    labels are 1-indexed and require `label - 1`; EEGMamba's test_nch.py
-    compares pred_y to y with no offset, suggesting NCH is already
-    0-indexed -- but that was an inference, not a verified fact, so check
-    it here every run rather than trusting it silently.
-    """
+    """Raise loudly if labels fall outside 0..K-1 (checks the 0-indexed assumption every run)."""
     all_vals = np.concatenate(y_true_list)
     lo, hi = int(all_vals.min()), int(all_vals.max())
     if lo < 0 or hi > K - 1:
         raise ValueError(
             f"[{context}] labels outside expected 0..{K-1} range: "
-            f"observed min={lo}, max={hi}. Check NCHIndexDataset's label "
-            f"convention before trusting any HMM output from this run."
+            f"observed min={lo}, max={hi}. Check the label convention before trusting any HMM output."
         )
     print(f"[{context}] label range check passed: min={lo}, max={hi}")
+
+
+# ============================================================
+# FILE / RUN HELPERS
+# ============================================================
+def list_recordings(directory):
+    """[(rec_id, probs_path)] for '<subject>_<study>_probs.npy' files; others are reported and skipped."""
+    ok, stale = [], []
+    for p in sorted(glob.glob(os.path.join(directory, '*_probs.npy'))):
+        m = REC_PROB_RE.match(os.path.basename(p))
+        if m:
+            ok.append((m.group(1), p))
+        else:
+            stale.append(os.path.basename(p))
+    if stale:
+        print(f"[WARN] {len(stale)} file(s) in {directory} are not '<subject>_<study>_probs.npy' "
+              f"(e.g. {stale[0]}) -- skipped. Remove stale outputs from older runs.")
+    return ok
+
+
+def read_source(directory):
+    """data_source_used recorded by test_nch.py ('cache' | 'parquet'), or None."""
+    p = os.path.join(directory, 'run_meta.json')
+    if not os.path.exists(p):
+        return None
+    return json.load(open(p)).get('data_source_used')
+
+
+def infer_data_source(pred_dir, requested):
+    """Estimate A from the same windowing the predictions were made with."""
+    used = {'cache': 'cache', 'parquet': 'live'}.get(read_source(pred_dir))
+    if requested == 'auto':
+        if used:
+            print(f"[data] predictions came from the {used} path (run_meta.json) -> estimating A from the same")
+            return used
+        return 'auto'
+    if used and used != requested:
+        print(f"[WARN] --data_source={requested} but the predictions in {pred_dir} came from '{used}'; "
+              "A and the decoded windows use different window grids.")
+    return requested
+
+
+def run_bounds(n_epochs, run_idx_path, seq_len, rec_id=""):
+    """[(start, end)] epoch ranges, one per run. run_idx is stored per window (seq_len epochs each)."""
+    if not os.path.exists(run_idx_path):
+        print(f"[WARN] {rec_id}: no run_idx file ({os.path.basename(run_idx_path)}); decoding as ONE "
+              "sequence, so gaps between runs are NOT respected (rerun test_nch.py to get it)")
+        return [(0, n_epochs)]
+    runs = np.repeat(np.asarray(json.load(open(run_idx_path)), dtype=int), seq_len)
+    if len(runs) != n_epochs or (runs < 0).all():
+        print(f"[WARN] {rec_id}: run_idx unusable (len {len(runs)} vs {n_epochs} epochs); decoding as ONE sequence")
+        return [(0, n_epochs)]
+    cut = np.where(np.diff(runs) != 0)[0] + 1
+    edges = [0, *cut.tolist(), n_epochs]
+    return list(zip(edges[:-1], edges[1:]))
 
 
 # ============================================================
 # HMM PARAMETER ESTIMATION FROM TRAINING GROUND TRUTH
 # ============================================================
 def get_uniform_pi():
-    """
-    Fixed uniform initial-state distribution, per the paper this method is
-    based on ("A Neuro-Explicit DNN-HMM Approach..." Section 2.2): pi is
-    NOT estimated from data, it is set uniform over the K states so that
-    only the DNN's own posteriorgram influences the very first epoch's
-    decoding. This is PI_SOURCE="uniform" (the default).
-    """
+    """Fixed uniform initial-state distribution (paper: pi is NOT estimated from data)."""
     return np.ones(K) / K
 
 
 def estimate_hmm_parameters_from_gt(y_true_list, label="", verbose=True):
-    """
-    Estimates the transition matrix A via pooled MLE counts over the
-    training ground-truth sequences (matches the paper's "transition
-    matrix initialized with the averaged transitions over the entire
-    dataset"). Also returns an empirically-estimated pi (from the first
-    label of each sequence) for comparison purposes only -- the paper
-    itself does NOT use this; see get_uniform_pi() and PI_SOURCE.
-    """
+    """Transition matrix A via pooled MLE counts over per-run training label sequences.
+    Also returns an empirical pi (first label of each sequence) for comparison only."""
     pi_counts = np.zeros(K)
     for y in y_true_list:
         pi_counts[y[0]] += 1
@@ -110,13 +146,11 @@ def estimate_hmm_parameters_from_gt(y_true_list, label="", verbose=True):
 
     if verbose:
         print(f"\n{'='*70}\nHMM PARAMETERS ({label}) -- from NCH training ground truth\n{'='*70}")
-        print(pd.DataFrame(
-            np.round(A, 4),
-            index=[STAGE_NAMES[s] for s in STAGES],
-            columns=[STAGE_NAMES[s] for s in STAGES]
-        ))
+        print(pd.DataFrame(np.round(A, 4),
+                           index=[STAGE_NAMES[s] for s in STAGES],
+                           columns=[STAGE_NAMES[s] for s in STAGES]))
         print("\nInitial State Distribution pi (empirical alternative -- NOT necessarily "
-              "what gets used; see PI_SOURCE / --pi_source)")
+              "what gets used; see --pi_source)")
         for i in STAGES:
             print(f"  {STAGE_NAMES[i]} : {pi_empirical[i]:.4f}")
         print("=" * 70 + "\n")
@@ -146,93 +180,87 @@ def viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha):
     path[T - 1] = np.argmax(viterbi[T - 1])
     for t in range(T - 2, -1, -1):
         path[t] = backptr[t + 1, path[t + 1]]
+    return path   # 0-indexed, matches STAGES directly
 
-    return path   # 0-indexed, matches STAGES directly -- no +1 offset
-                   # needed here (unlike the SleepTransformer version,
-                   # which re-added 1 for its 1-indexed label convention)
+
+def decode_by_runs(obs_probs, bounds, log_A, log_pi, alpha):
+    """Viterbi decoded separately on each run; every run starts from the uniform pi."""
+    path = np.empty(len(obs_probs), dtype=int)
+    for s, e in bounds:
+        path[s:e] = viterbi_hmm_softmax(obs_probs[s:e], log_A, log_pi, alpha)
+    return path
 
 
 # ============================================================
-# LOADING GROUND TRUTH FOR THE TRAINING SPLIT
+# LOADING GROUND TRUTH FOR THE TRAINING SPLIT (one label sequence per RUN)
 # ============================================================
 def load_nch_train_sequences(index_path, age_bin, seq_len=20, data_source='auto'):
-    """Per-recording chronological train labels. Uses the preprocessed cache's label
-    files when usable (no EDF/signal decode), else falls back to the parquet path."""
+    """Per-run chronological training label sequences. Cache: label files only (x never loaded).
+    Parquet: labels come from the index's label_seq column (no EDF decode)."""
     if data_source != 'live':
         from argparse import Namespace
         from datasets.nch_cached_dataset import NCHCachedDataset, cache_status, CACHE_ROOT, LABEL_OFFSET
         ok, reasons = cache_status(Namespace(seq_len=seq_len, age_bin=age_bin))
         if ok:
-            ds = NCHCachedDataset(CACHE_ROOT, 'train', age_bin)   # items are filename-sorted per subject dir
-            recs = {}
-            for sp, lp in ds.items:
-                y = np.load(lp).astype(np.int64).reshape(-1) - LABEL_OFFSET   # labels only, x never loaded
-                recs.setdefault(os.path.dirname(sp), []).append(y)
-            y_true_list = [np.concatenate(v) for v in recs.values()]
-            print(f"[{age_bin}] (cache) {len(y_true_list)} training recordings, "
+            ds = NCHCachedDataset(CACHE_ROOT, 'train', age_bin, require_meta=True)
+            groups = {}
+            for (sp, lp), (subj, study, run_idx, block_idx) in zip(ds.items, ds.meta):
+                groups.setdefault((subj, study, run_idx), []).append((block_idx, lp))
+            y_true_list = [
+                np.concatenate([np.load(lp).astype(np.int64).reshape(-1) - LABEL_OFFSET
+                                for _, lp in sorted(v)])
+                for v in groups.values()
+            ]
+            print(f"[{age_bin}] (cache) {len(y_true_list)} training runs, "
                   f"{sum(len(y) for y in y_true_list)} epochs for GT transition estimation.")
             return y_true_list
         if data_source == 'cache':
             raise RuntimeError(f"data_source=cache but cache unusable: {reasons[:5]}")
         print(f"[{age_bin}] cache not usable -> parquet. Reason: {reasons[:3]}")
-    from datasets.nch_dataset import NCHIndexDataset  # local import: this
-                                                        # module has no
-                                                        # other torch/cuda
-                                                        # dependency, keep
-                                                        # it that way so it
-                                                        # can run on a
-                                                        # CPU-only node
-    train_set = NCHIndexDataset(index_path, split='train', age_bin=age_bin, seq_len=seq_len)
-    sorted_df = train_set.df.sort_values(['edf_path', 'seq_start_sec'])
-    recordings = sorted_df.groupby('edf_path', sort=False).groups
 
-    y_true_list = []
-    for edf_path, row_positions in recordings.items():
-        labels = []
-        for pos in row_positions:
-            _, y = train_set[pos]
-            labels += y.numpy().tolist()
-        y_true_list.append(np.array(labels, dtype=int))
-
-    print(f"[{age_bin}] Loaded {len(y_true_list)} training recordings "
-          f"({sum(len(y) for y in y_true_list)} total epochs) for GT transition estimation.")
+    from datasets.nch_dataset import NCHIndexDataset   # local import: keeps this module CPU-friendly
+    df = NCHIndexDataset(index_path, split='train', age_bin=age_bin, seq_len=seq_len).df
+    if 'run_idx' in df.columns:
+        keys = ['edf_path', 'run_idx']
+    else:
+        print("[WARN] index has no run_idx column; treating each recording as one sequence")
+        keys = ['edf_path']
+    df = df.sort_values(keys + ['seq_start_sec'])
+    y_true_list = [np.concatenate([np.asarray(l, dtype=int) for l in g.label_seq])
+                   for _, g in df.groupby(keys, sort=False)]
+    print(f"[{age_bin}] (parquet) {len(y_true_list)} training runs, "
+          f"{sum(len(y) for y in y_true_list)} epochs for GT transition estimation.")
     return y_true_list
+
 
 # ============================================================
 # LOADING TRAIN-SPLIT MODEL SCORES (only needed for hmm_trained)
 # ============================================================
-def load_nch_train_probs_and_gt(pred_dir, age_bin):
-    """
-    Loads {rec_id}_probs.npy / {rec_id}_ytrue.npy pairs from
-    <pred_dir>/training_scores/, as produced by
-    `test_nch.py --age_bin <bin> --split train --pred_dir <pred_dir>`.
-
-    Raises with a clear, actionable message (does not silently skip) if
-    that hasn't been run yet -- hmm_trained is not usable without it.
-    """
+def load_nch_train_probs_and_gt(pred_dir, age_bin, seq_len=20):
+    """Per-run (probs, ytrue) segments from <pred_dir>/training_scores/, as produced by
+    `test_nch.py --age_bin <bin> --split train --pred_dir <pred_dir>`."""
     train_pred_dir = os.path.join(pred_dir, 'training_scores')
-
-    prob_files = sorted(glob.glob(os.path.join(train_pred_dir, '*_probs.npy')))
-    if not prob_files:
+    recs = list_recordings(train_pred_dir)
+    if not recs:
         raise FileNotFoundError(
             f"No train-split scores found at {train_pred_dir}.\n"
-            f"hmm_trained mode needs the model's own softmax scores on the "
-            f"training split. Run:\n"
+            f"hmm_trained mode needs the model's own softmax scores on the training split. Run:\n"
             f"  python test_nch.py --age_bin {age_bin} --split train "
-            f"--pred_dir {pred_dir} --model_dir <checkpoint dir> "
-            f"--index_path <index.parquet>\n"
+            f"--pred_dir {pred_dir} --model_dir <checkpoint dir> --index_path <index.parquet>\n"
             f"first, then retry."
         )
 
-    obs_probs_list = []
-    y_true_list = []
-    for prob_path in prob_files:
-        rec_id = os.path.basename(prob_path).replace('_probs.npy', '')
-        ytrue_path = os.path.join(train_pred_dir, f'{rec_id}_ytrue.npy')
-        obs_probs_list.append(np.load(prob_path))
-        y_true_list.append(np.load(ytrue_path))
+    obs_probs_list, y_true_list = [], []
+    for rec_id, prob_path in recs:
+        probs = np.load(prob_path)
+        ytrue = np.load(os.path.join(train_pred_dir, f'{rec_id}_ytrue.npy'))
+        bounds = run_bounds(len(ytrue), os.path.join(train_pred_dir, f'{rec_id}_run_idx.json'),
+                            seq_len, rec_id)
+        for s, e in bounds:
+            obs_probs_list.append(probs[s:e])
+            y_true_list.append(ytrue[s:e])
 
-    print(f"[{age_bin}] Loaded {len(obs_probs_list)} train-split score/label pairs "
+    print(f"[{age_bin}] Loaded {len(recs)} train-split recordings -> {len(obs_probs_list)} runs "
           f"from {train_pred_dir} for MMI training.")
     return obs_probs_list, y_true_list
 
@@ -245,33 +273,33 @@ def refine_age_bin(pred_dir, age_bin, mode, index_path, seq_len=20, pi_source="u
     assert mode in ("hmm", "hmm_trained")
     assert pi_source in ("uniform", "empirical")
 
-    # Test-split files (ypred/ytrue/probs) sit flat in pred_dir, matching
-    # the existing on-disk convention -- see test_nch.py.
-    test_pred_dir = pred_dir
+    test_pred_dir = pred_dir      # test-split files sit flat in pred_dir (see test_nch.py)
     out_dir = os.path.join(pred_dir, 'hmmRefined')
     os.makedirs(out_dir, exist_ok=True)
+    data_source = infer_data_source(pred_dir, data_source)
 
     # --------------------------------------------------------
-    # 1. Estimate (or train) the transition prior from NCH train split
+    # 1. Estimate (or train) the transition prior from the NCH train split
     # --------------------------------------------------------
     train_gt = load_nch_train_sequences(index_path, age_bin, seq_len=seq_len, data_source=data_source)
     verify_label_range(train_gt, context=f"{age_bin} train GT")
-    A_init, pi_empirical = estimate_hmm_parameters_from_gt(
-        train_gt, label=f"NCH {age_bin} (train split)"
-    )
+    A_init, pi_empirical = estimate_hmm_parameters_from_gt(train_gt, label=f"NCH {age_bin} (train split)")
     pi_init = get_uniform_pi() if pi_source == "uniform" else pi_empirical
     print(f"[{age_bin}] pi_source={pi_source} -> pi={np.round(pi_init, 4)}")
 
     if mode == "hmm":
         A, pi, alpha = A_init, pi_init, None
     else:  # hmm_trained
-        obs_probs_list, ytrue_list = load_nch_train_probs_and_gt(pred_dir, age_bin)
+        train_src, test_src = read_source(os.path.join(pred_dir, 'training_scores')), read_source(pred_dir)
+        if train_src and test_src and train_src != test_src:
+            print(f"[WARN] training scores came from '{train_src}' but test predictions from '{test_src}'")
+        obs_probs_list, ytrue_list = load_nch_train_probs_and_gt(pred_dir, age_bin, seq_len=seq_len)
         verify_label_range(ytrue_list, context=f"{age_bin} train GT (from predictions)")
         A, pi, alpha = train_hmm_mmi(obs_probs_list, ytrue_list, A_init, pi_init, alpha_init=alpha_init)
         print(f"\n{'='*70}\nNCH TRAINED HMM PRIOR -- {age_bin}\n{'='*70}")
         print(pd.DataFrame(np.round(A, 4),
-                            index=[STAGE_NAMES[s] for s in STAGES],
-                            columns=[STAGE_NAMES[s] for s in STAGES]))
+                           index=[STAGE_NAMES[s] for s in STAGES],
+                           columns=[STAGE_NAMES[s] for s in STAGES]))
         print(f"\nTrained alpha: {alpha:.4f}")
         print("=" * 70 + "\n")
 
@@ -283,18 +311,17 @@ def refine_age_bin(pred_dir, age_bin, mode, index_path, seq_len=20, pi_source="u
     log_pi = np.log(pi + 1e-300)
 
     # --------------------------------------------------------
-    # 2. Refine every test-split recording
+    # 2. Refine every test-split recording, one decode per run
     # --------------------------------------------------------
-    prob_files = sorted(glob.glob(os.path.join(test_pred_dir, '*_probs.npy')))
-    if not prob_files:
+    recs = list_recordings(test_pred_dir)
+    if not recs:
         raise FileNotFoundError(
-            f"No test-split predictions found at {test_pred_dir}. "
+            f"No '<subject>_<study>_probs.npy' files found at {test_pred_dir}. "
             f"Run test_nch.py for {age_bin} first (default --split test)."
         )
 
-    for prob_path in prob_files:
-        rec_id = os.path.basename(prob_path).replace('_probs.npy', '')
-        obs_probs = np.load(prob_path)                                       # (T, K)
+    for rec_id, prob_path in recs:
+        obs_probs = np.load(prob_path)                                        # (T, K)
         y_true = np.load(os.path.join(test_pred_dir, f'{rec_id}_ytrue.npy'))  # (T,)
         y_pred_raw = np.load(os.path.join(test_pred_dir, f'{rec_id}_ypred.npy'))
 
@@ -302,28 +329,33 @@ def refine_age_bin(pred_dir, age_bin, mode, index_path, seq_len=20, pi_source="u
             f"{rec_id}: length mismatch between probs ({obs_probs.shape[0]}), "
             f"ytrue ({len(y_true)}), ypred ({len(y_pred_raw)})"
         )
+        bounds = run_bounds(len(y_true), os.path.join(test_pred_dir, f'{rec_id}_run_idx.json'),
+                            seq_len, rec_id)
 
         max_prob = obs_probs.max(axis=1)
         ent = entropy(obs_probs, axis=1, base=2)
-        print(f"  {rec_id} -- mean max-prob: {max_prob.mean():.3f}, "
+        print(f"  {rec_id} ({len(bounds)} run(s)) -- mean max-prob: {max_prob.mean():.3f}, "
               f"mean entropy: {ent.mean():.3f} bits (max={np.log2(K):.2f})")
 
-        # ytrue copied into hmmRefined/ too, so downstream analysis scripts
-        # only ever need to look in one directory per experimental arm.
+        # ytrue / timing files are copied into hmmRefined/ so downstream scripts only
+        # need to look in one directory per experimental arm.
         np.save(os.path.join(out_dir, f'{rec_id}_ytrue.npy'), y_true)
+        for ext in ('seq_starts', 'run_idx'):
+            src = os.path.join(test_pred_dir, f'{rec_id}_{ext}.json')
+            if os.path.exists(src):
+                shutil.copy(src, out_dir)
 
         if mode == "hmm":
             last_path = None
             for a in ALPHA_VALUES:
-                path = viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha=a)
+                path = decode_by_runs(obs_probs, bounds, log_A, log_pi, alpha=a)
                 np.save(os.path.join(out_dir, f'{rec_id}_ypred_alpha{a:.1f}.npy'), path)
                 last_path = path
-            num_changed = np.sum(y_pred_raw != last_path)  # last (largest) alpha, for the log line
+            num_changed = np.sum(y_pred_raw != last_path)
             print(f"    (alpha={ALPHA_VALUES[-1]:.1f}) changed epochs vs raw argmax: "
                   f"{num_changed}/{len(y_pred_raw)} ({100*num_changed/len(y_pred_raw):.2f}%)")
-
         else:  # hmm_trained
-            path = viterbi_hmm_softmax(obs_probs, log_A, log_pi, alpha=alpha)
+            path = decode_by_runs(obs_probs, bounds, log_A, log_pi, alpha=alpha)
             np.save(os.path.join(out_dir, f'{rec_id}_ypred_trained.npy'), path)
             num_changed = np.sum(y_pred_raw != path)
             print(f"    HMM-trained changed epochs vs raw argmax: "
@@ -337,42 +369,31 @@ def main():
     parser.add_argument('--age_bin', type=str, required=True, choices=AGE_BINS)
     parser.add_argument('--mode', type=str, required=True, choices=['hmm', 'hmm_trained'])
     parser.add_argument('--pred_dir', type=str, required=True,
-                         help='Base predictions directory for this age bin, e.g. '
-                              'EEGMamba/predictions/NCH_1-2y. Must match the --pred_dir '
-                              'used for the corresponding test_nch.py run(s).')
+                        help='Base predictions directory, must match the --pred_dir used for test_nch.py.')
     parser.add_argument('--index_path', type=str, required=True,
-                         help='Path to the parquet produced by build_nch_index.py '
-                              '(needed to reconstruct train-split GT sequences)')
+                        help='Parquet from build_nch_index.py (train-split GT when the parquet path is used)')
     parser.add_argument('--seq_len', type=int, default=20,
-                         help='Must match the index parquet given by --index_path, '
-                              'and the seq_len that --pred_dir\'s predictions (test, '
-                              'and for hmm_trained, training_scores) were generated at.')
-    parser.add_argument('--pi_source', type=str, default='uniform',
-                         choices=['uniform', 'empirical'],
-                         help="Initial-state distribution. 'uniform' (default) matches "
-                              "the Neuro-Explicit DNN-HMM paper this method is based on "
-                              "-- pi is fixed uniform over states, not estimated from data. "
-                              "'empirical' (pi from the first label of each training "
-                              "sequence) is available for comparison but is NOT what the "
-                              "paper does.")
+                        help='Must match the index parquet and the seq_len the predictions were made at.')
+    parser.add_argument('--pi_source', type=str, default='uniform', choices=['uniform', 'empirical'],
+                        help="'uniform' (default) matches the Neuro-Explicit DNN-HMM paper; 'empirical' is "
+                             "available for comparison only.")
     parser.add_argument('--alpha_init', type=float, default=0.7,
-                         help="Warm-start value for alpha before MMI training "
-                              "(only used in --mode hmm_trained; previously "
-                              "hardcoded to 0.7 inside train_hmm_mmi). Pass the "
-                              "alpha selected by select_alpha_eval.py's eval-set "
-                              "sweep for this age bin, so MMI training starts from "
-                              "a value you've already validated rather than an "
-                              "arbitrary constant.")
-    parser.add_argument('--data_source', type=str, default='auto', choices=['auto', 'cache', 'live'])
+                        help="Warm-start alpha for MMI training (only --mode hmm_trained). Pass the alpha "
+                             "selected by the eval-set sweep for this age bin.")
+    parser.add_argument('--data_source', type=str, default='auto', choices=['auto', 'cache', 'live'],
+                        help="Source of the train-split labels used for A. 'auto' follows the data source "
+                             "recorded in <pred_dir>/run_meta.json, so A and the predictions share one "
+                             "window grid.")
     args = parser.parse_args()
 
     print(f"\n{'='*60}\n  Age bin: {args.age_bin} | Mode: {args.mode} | seq_len: {args.seq_len} "
           f"| pred_dir: {args.pred_dir}\n{'='*60}\n")
     if args.mode == "hmm_trained":
-        print(f"Initial alpha: {args.alpha_init}")   # add this line
+        print(f"Initial alpha: {args.alpha_init}")
     print(f"{'='*60}\n")
     refine_age_bin(args.pred_dir, args.age_bin, args.mode, args.index_path,
-                    seq_len=args.seq_len, pi_source=args.pi_source, alpha_init=args.alpha_init)
+                   seq_len=args.seq_len, pi_source=args.pi_source, alpha_init=args.alpha_init,
+                   data_source=args.data_source)
 
 
 if __name__ == '__main__':
