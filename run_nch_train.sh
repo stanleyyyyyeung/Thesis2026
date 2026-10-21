@@ -33,6 +33,8 @@
 AGE_BIN="${bin:?Must pass age bin, e.g. qsub -v bin=1-2y run_nch_finetuned_eval.sh}"
 seq_len="${seq_len:-20}"
 train_tag="${train_tag:-$AGE_BIN}" 
+exp="${exp:-}"
+seed="${seed:-3407}"
 DATA_SOURCE="${data_source:-cache}"   # Cache for preprocessed, live for parquet
 
 REPO_DIR="/srv/scratch/z5423210/StanleyThesis2026/EEGMamba"
@@ -41,7 +43,11 @@ SIF="/srv/scratch/z5423210/pytorch_cu128.sif"
 CKPT_ARG=""
 [ -n "${ckpt:-}" ] && CKPT_ARG="--checkpoint ${ckpt}"  # qsub -v bin=6-12y,train_tag=pooled-6-12y-13-18y,seq_len=20,ckpt=/path/to/model_weights/NCH_pooled-6-12y-13-18y_seqlen20/<tag>__best.pth run_nch_test.sh
 
-if [ "$train_tag" = "$AGE_BIN" ]; then
+if [ -n "$exp" ]; then
+    # joint-trained arm: own trees, never mixes with the baseline folders
+    MODEL_DIR="$REPO_DIR/model_weights_joint/NCH_${train_tag}_seqlen${seq_len}/${exp}_seed${seed}"
+    PRED_DIR="$REPO_DIR/predictions_joint/NCH_${train_tag}_seqlen${seq_len}/${exp}_seed${seed}_on-${AGE_BIN}"
+elif [ "$train_tag" = "$AGE_BIN" ]; then
     # per-bin model: keep the legacy no-suffix convention at seq_len 20
     if [ "$seq_len" -eq 20 ]; then SUFFIX=""; else SUFFIX="_seqlen${seq_len}"; fi
     MODEL_DIR="$REPO_DIR/model_weights/NCH_${AGE_BIN}${SUFFIX}"
@@ -67,9 +73,11 @@ fi
 
 cd "$REPO_DIR" || exit 1
 
-echo "Starting FINETUNED train-split score extraction for age bin: ${AGE_BIN} (job ${PBS_JOBID})"
+echo "Starting FINETUNED test-split extraction for age bin: ${AGE_BIN}, seq_len=${seq_len} (job ${PBS_JOBID})"
+echo "  index_path=${INDEX_PATH}"
 echo "  model_dir=${MODEL_DIR}"
-echo "  pred_dir=${PRED_DIR}  (train-split scores land in \${PRED_DIR}/training_scores/)"
+echo "  pred_dir=${PRED_DIR}"
+echo "  data_source=${DATA_SOURCE} exp=${exp:-none} seed=${seed}"
 
 PYTHONPATH=/srv/scratch/z5423210/python_packages_py310:/srv/scratch/z5423210/python_packages \
 apptainer exec --nv \
@@ -88,8 +96,8 @@ apptainer exec --nv \
     --cuda 0
 STATUS=$?
 
-echo "Finished FINETUNED train-split extraction: ${AGE_BIN}, exit code ${STATUS}"
+echo "Finished FINETUNED test-split extraction: ${AGE_BIN}, seq_len=${seq_len}, exit code ${STATUS}"
 if [ "$STATUS" -ne 0 ]; then
-    echo "ERROR: finetuned train-split extraction failed for age bin ${AGE_BIN} (exit ${STATUS})" >&2
+    echo "ERROR: finetuned test-split extraction failed for age bin ${AGE_BIN}, seq_len=${seq_len} (exit ${STATUS})" >&2
     exit "$STATUS"
 fi
